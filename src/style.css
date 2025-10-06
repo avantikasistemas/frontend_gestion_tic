@@ -1,0 +1,27 @@
+/* Reset suave */
+* {
+  box-sizing: border-box
+}
+
+:root {
+  --bg: #f6f7f8;
+  --panel: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #17C1A4;
+  --accent-600: #0f9f8b;
+  --accent-200: #bcefe6;
+}
+
+html,
+body,
+#app {
+  height: 100%
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
