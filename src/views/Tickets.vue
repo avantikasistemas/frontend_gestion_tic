@@ -47,7 +47,7 @@
           <ul>
             <li :class="{active: vista==='inbox'}" @click="vista='inbox'">
               <span>Bandeja (M365)</span>
-              <span class="badge">{{ inbox.length }}</span>
+              <span class="badge">{{ correos.length }}</span>
             </li>
             <li v-for="v in vistas" :key="v.key" :class="{active: vista===v.key}" @click="vista=v.key">
               <span>{{ v.label }}</span>
@@ -75,13 +75,13 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="m in inbox" :key="m.id">
-                <td>{{ fmt(m.receivedAt) }}</td>
-                <td class="ellipsis" :title="m.from">{{ m.from }}</td>
+              <tr v-for="m in correos" :key="m.id">
+                <td>{{ fmt(m.receivedDateTime) }}</td>
+                <td class="ellipsis" :title="m.from">{{ m.from.emailAddress.name }}</td>
                 <td class="ellipsis">
                   <button class="link" @click="openMail(m)" :title="m.subject">{{ m.subject }}</button>
                 </td>
-                <td class="ellipsis" :title="m.preview">{{ m.preview }}</td>
+                <td class="ellipsis" :title="m.preview">{{ m.bodyPreview }}</td>
                 <td>
                   <div class="inbox-actions">
                     <div class="inbox-buttons">
@@ -92,7 +92,7 @@
                   </div>
                 </td>
               </tr>
-              <tr v-if="!inbox.length">
+              <tr v-if="!correos.length">
                 <td colspan="5" class="empty">No hay correos pendientes. Pulsa “Sincronizar Microsoft 365”.</td>
               </tr>
             </tbody>
@@ -258,11 +258,36 @@
         </div>
         <div class="sheet-body">
           <div class="mail-meta">
-            <div><strong>De:</strong> {{ mail.item?.from }}</div>
-            <div><strong>Fecha:</strong> {{ fmt(mail.item?.receivedAt) }}</div>
+            <div><strong>De:</strong> {{ mail.item?.from.emailAddress.address }}</div>
+            <div><strong>Fecha:</strong> {{ fmt(mail.item?.receivedDateTime) }}</div>
           </div>
-          <div class="mail-body">
-            <pre>{{ mail.item?.body || mail.item?.preview }}</pre>
+          <div class="mail-body" v-html="cleanHtmlContent(mail.item?.body.content)" ref="mailBodyRef" :key="mail.item?.id">
+          </div>
+          
+          <!-- Sección de attachments -->
+          <div v-if="currentAttachments.length > 0" class="mail-attachments">
+            <h4 class="attachments-title">📎 Archivos adjuntos ({{ currentAttachments.length }})</h4>
+            <div class="attachments-list">
+              <div 
+                v-for="attachment in currentAttachments" 
+                :key="attachment.id" 
+                class="attachment-item"
+                @click="downloadAttachment(attachment)"
+              >
+                <div class="attachment-icon">
+                  {{ getFileIcon(attachment.contentType || attachment.name) }}
+                </div>
+                <div class="attachment-info">
+                  <div class="attachment-name">{{ attachment.name }}</div>
+                  <div class="attachment-size">{{ formatFileSize(attachment.size) }}</div>
+                </div>
+                <div class="attachment-download">
+                  <button class="download-btn" @click.stop="downloadAttachment(attachment)">
+                    ⬇️
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="sheet-foot">
@@ -281,7 +306,19 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useTickets } from '../store/tickets'
 
+import { useRouter } from 'vue-router';
+import axios from 'axios';
+import apiUrl from "../../config.js";
+
+const router = useRouter();
+
 const { state } = useTickets()
+
+const correos = ref([]);
+const token = ref('');
+const attachmentsCache = ref(new Map()); // Cache para attachments
+const mailBodyRef = ref(null); // Referencia al contenedor del mail body
+const currentAttachments = ref([]); // Attachments del correo actual
 
 // Catálogos
 const estados = ['Abierto','En Proceso','En Espera','Completado','Cerrado']
@@ -304,19 +341,69 @@ onMounted(()=>{
 })
 watch(inbox, v=> localStorage.setItem('inbox_m365', JSON.stringify(v)), { deep:true })
 
-function syncM365(){
-  const seed = [
-    { id:'m'+Date.now()+'a', subject:'Solicitud cuenta VPN nuevo ingreso', from:'RRHH <rrhh@avantika.com.co>', receivedAt:new Date(Date.now()-3600_000).toISOString(), preview:'Por favor crear usuario VPN para Ana M. área de compras.', body:'Buenas,\n\nSolicito creación de usuario VPN para Ana M. (Compras).\n\nGracias.' },
-    { id:'m'+Date.now()+'b', subject:'Backup ERP falló anoche [servicios]', from:'Sistemas <sistemas@avantika.com.co>', receivedAt:new Date(Date.now()-2*3600_000).toISOString(), preview:'El job de SQL Agent terminó con código 1. Se requiere revisión.', body:'Hola,\n\nEl job de SQL Agent terminó con código 1. Favor revisar el servidor y logs.\n\n-- Sistemas' },
-    { id:'m'+Date.now()+'c', subject:'TELÉFONO NO FUNCIONA', from:'Brayan Pérez <brayan@avantika.com.co>', receivedAt:new Date(Date.now()-5*3600_000).toISOString(), preview:'Buenas tardes, mi teléfono de escritorio no funciona. ¿Me ayudan por favor?', body:'Buenas tardes,\n\nMi teléfono de escritorio no funciona. ¿Me pueden ayudar por favor?\n\nGracias,\nBrayan' },
-  ]
-  seed.forEach(m=>{
-    if(!inbox.value.find(x=>x.id===m.id)){
-      Object.assign(m,{ tipoTicket:'Gestión', tipoSoporte:'', macroproceso:'', prioridad:'Media', asignadoA:'' })
-      inbox.value.unshift(m)
+// function syncM365(){
+//   const seed = [
+//     { id:'m'+Date.now()+'a', subject:'Solicitud cuenta VPN nuevo ingreso', from:'RRHH <rrhh@avantika.com.co>', receivedAt:new Date(Date.now()-3600_000).toISOString(), preview:'Por favor crear usuario VPN para Ana M. área de compras.', body:'Buenas,\n\nSolicito creación de usuario VPN para Ana M. (Compras).\n\nGracias.' },
+//     { id:'m'+Date.now()+'b', subject:'Backup ERP falló anoche [servicios]', from:'Sistemas <sistemas@avantika.com.co>', receivedAt:new Date(Date.now()-2*3600_000).toISOString(), preview:'El job de SQL Agent terminó con código 1. Se requiere revisión.', body:'Hola,\n\nEl job de SQL Agent terminó con código 1. Favor revisar el servidor y logs.\n\n-- Sistemas' },
+//     { id:'m'+Date.now()+'c', subject:'TELÉFONO NO FUNCIONA', from:'Brayan Pérez <brayan@avantika.com.co>', receivedAt:new Date(Date.now()-5*3600_000).toISOString(), preview:'Buenas tardes, mi teléfono de escritorio no funciona. ¿Me ayudan por favor?', body:'Buenas tardes,\n\nMi teléfono de escritorio no funciona. ¿Me pueden ayudar por favor?\n\nGracias,\nBrayan' },
+//   ]
+//   seed.forEach(m=>{
+//     if(!inbox.value.find(x=>x.id===m.id)){
+//       Object.assign(m,{ tipoTicket:'Gestión', tipoSoporte:'', macroproceso:'', prioridad:'Media', asignadoA:'' })
+//       inbox.value.unshift(m)
+//     }
+//   })
+//   alert('Bandeja sincronizada (demo).')
+// }
+
+const syncM365 = async () => {
+  try {
+    const response = await axios.post(
+        `${apiUrl}/obtener_correos`, {},
+        {
+            headers: {
+                Accept: "application/json",
+            }
+        }
+    );
+    if (response.status === 200) {
+        correos.value = response.data.data.emails || [];
+        token.value = response.data.data.token || '';
     }
-  })
-  alert('Bandeja sincronizada (demo).')
+  } catch (error) {
+    console.error('Error al obtener correos:', error);
+  }
+}
+
+// Función para obtener attachments de un correo específico
+const obtenerAttachments = async (messageId) => {
+  try {
+    // Verificar si ya están en caché
+    if (attachmentsCache.value.has(messageId)) {
+      return attachmentsCache.value.get(messageId);
+    }
+    
+    const response = await axios.post(
+      `${apiUrl}/obtener_attachments`, 
+      { messageId: messageId, token: token.value },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+    
+    if (response.status === 200) {
+      const attachments = response.data.data || [];
+      // Guardar en caché
+      attachmentsCache.value.set(messageId, attachments);
+      return attachments;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error al obtener attachments:', error);
+    return [];
+  }
 }
 
 function promote(m){
@@ -343,10 +430,33 @@ function discard(m){ inbox.value = inbox.value.filter(x=> x.id!==m.id) }
 
 // Modal correo
 const mail = ref({ open:false, item:null })
-function openMail(m){ mail.value={ open:true, item:m }; lockScroll(true) }
-function closeMail(){ mail.value.open=false; lockScroll(false) }
+function openMail(m){ 
+  mail.value={ open:true, item:m }; 
+  lockScroll(true) 
+}
+function closeMail(){ 
+  mail.value.open=false; 
+  mail.value.item=null; // Limpiar el item para forzar re-renderizado
+  lockScroll(false) 
+}
 function promoteFromModal(){ if(mail.value.item){ promote(mail.value.item); closeMail() } }
 function discardFromModal(){ if(mail.value.item){ discard(mail.value.item); closeMail() } }
+
+// Watcher optimizado para procesar imágenes CID y cargar attachments con una sola llamada API
+watch([() => mail.value.item, () => mail.value.open], async ([newMail, isOpen]) => {
+  if (newMail && isOpen) {
+    // Limpiar attachments anteriores
+    currentAttachments.value = []
+    
+    await nextTick() // Esperar a que el DOM se actualice
+    
+    // Una sola llamada a la API para obtener todos los attachments
+    await processMailAttachments(newMail.id)
+  } else if (!isOpen) {
+    // Limpiar attachments al cerrar
+    currentAttachments.value = []
+  }
+})
 
 // Filtros
 const q = ref('')
@@ -467,6 +577,315 @@ function lockScroll(on){
   else{ document.body.style.overflow=document.body.dataset.prevOverflow||''; delete document.body.dataset.prevOverflow }
 }
 function focusModal(){ const el=document.querySelector('.modal'); el && el.focus() }
+
+// Función para limpiar y formatear el contenido HTML del correo (síncrona)
+function cleanHtmlContent(htmlContent) {
+  if (!htmlContent) return ''
+  
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = htmlContent
+  
+  // Procesar imágenes para mejorar la visualización
+  const images = tempDiv.querySelectorAll('img')
+  
+  images.forEach(img => {
+    const src = img.getAttribute('src')
+    const alt = img.getAttribute('alt') || 'Imagen'
+    
+    // Para imágenes CID, mostrar placeholder inmediatamente
+    if (src && src.startsWith('cid:')) {
+      const placeholder = document.createElement('div')
+      placeholder.className = 'image-placeholder cid-image'
+      placeholder.dataset.cidSrc = src
+      
+      const cidId = src.replace('cid:', '')
+      const cidInfo = `<br><small style="font-family: monospace; font-size: 11px; color: #9ca3af;">CID: ${cidId.substring(0, 8)}...</small>`
+      
+      placeholder.innerHTML = `
+        <div style="
+          background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); 
+          border: 2px dashed #d1d5db; 
+          border-radius: 12px; 
+          padding: 24px 16px; 
+          text-align: center; 
+          color: #6b7280; 
+          margin: 12px 0;
+          font-size: 14px;
+          position: relative;
+          overflow: hidden;
+        ">
+          <div style="font-size: 32px; margin-bottom: 8px;">🖼️</div>
+          <div style="font-weight: 600; margin-bottom: 4px;">Imagen adjunta</div>
+          <div style="font-size: 13px;">${alt}</div>
+          ${cidInfo}
+          <div style="font-size: 11px; margin-top: 8px; opacity: 0.7;">
+            Esta imagen está incluida como archivo adjunto en el correo original
+          </div>
+        </div>
+        </div>
+      `
+      img.parentNode.replaceChild(placeholder, img)
+    } else {
+      // Para imágenes con URLs válidas, aplicar estilos y manejo de errores
+      img.style.maxWidth = '100%'
+      img.style.height = 'auto'
+      img.style.display = 'block'
+      img.style.margin = '8px 0'
+      img.style.borderRadius = '8px'
+      img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+      
+      // Manejo de errores para imágenes externas
+      img.onerror = function() {
+        const errorPlaceholder = document.createElement('div')
+        errorPlaceholder.innerHTML = `
+          <div style="
+            background: #fef2f2; 
+            border: 2px dashed #fca5a5; 
+            border-radius: 8px; 
+            padding: 16px; 
+            text-align: center; 
+            color: #dc2626; 
+            margin: 8px 0;
+            font-size: 14px;
+          ">
+            <div style="font-size: 24px; margin-bottom: 8px;">❌</div>
+            <div style="font-weight: 600;">Error al cargar imagen</div>
+            <div style="font-size: 12px; margin-top: 4px; opacity: 0.8;">${alt}</div>
+          </div>
+        `
+        this.parentNode.replaceChild(errorPlaceholder, this)
+      }
+    }
+  })
+  
+  // Limpiar atributos potencialmente peligrosos
+  const allElements = tempDiv.querySelectorAll('*')
+  allElements.forEach(el => {
+    // Mantener solo atributos seguros
+    const allowedAttrs = ['href', 'src', 'alt', 'title', 'class', 'style']
+    const attrs = [...el.attributes]
+    attrs.forEach(attr => {
+      if (!allowedAttrs.includes(attr.name.toLowerCase()) && 
+          !attr.name.startsWith('data-')) {
+        el.removeAttribute(attr.name)
+      }
+    })
+    
+    // Limpiar hrefs javascript:
+    if (el.hasAttribute('href') && el.getAttribute('href').startsWith('javascript:')) {
+      el.removeAttribute('href')
+    }
+  })
+  
+  // Aplicar estilos básicos para mejorar la presentación
+  const content = tempDiv.innerHTML
+  return content || htmlContent.replace(/<[^>]*>/g, '') // fallback a texto plano si falla
+}
+
+// Función asíncrona para procesar imágenes CID después de renderizar el HTML
+async function processCidImages(messageId) {
+  if (!messageId || !mailBodyRef.value) return
+  
+  const cidPlaceholders = mailBodyRef.value.querySelectorAll('.cid-image')
+  
+  if (cidPlaceholders.length === 0) return
+  
+  try {
+    const attachments = await obtenerAttachments(messageId)
+    
+    cidPlaceholders.forEach(placeholder => {
+      const cidSrc = placeholder.dataset.cidSrc
+      if (!cidSrc) return
+      
+      const cidId = cidSrc.replace('cid:', '')
+      const attachment = attachments.find(att => 
+        att.contentId === cidId || 
+        att.contentId === `<${cidId}>` ||
+        att.id === cidId
+      )
+      
+      if (attachment && attachment.contentBytes) {
+        // Convertir attachment a data URL
+        const mimeType = attachment.contentType || 'image/png'
+        const dataUrl = `data:${mimeType};base64,${attachment.contentBytes}`
+        
+        // Crear nueva imagen
+        const img = document.createElement('img')
+        img.src = dataUrl
+        img.style.maxWidth = '100%'
+        img.style.height = 'auto'
+        img.style.display = 'block'
+        img.style.margin = '8px 0'
+        img.style.borderRadius = '8px'
+        img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+        
+        // Reemplazar placeholder con imagen real
+        placeholder.parentNode.replaceChild(img, placeholder)
+      }
+    })
+  } catch (error) {
+    console.error('Error procesando imágenes CID:', error)
+  }
+}
+
+// Función optimizada que procesa attachments con una sola llamada API
+async function processMailAttachments(messageId) {
+  if (!messageId || !mailBodyRef.value) return
+  
+  try {
+    // Una sola llamada a la API para obtener todos los attachments
+    const attachments = await obtenerAttachments(messageId)
+    
+    // Procesar imágenes CID
+    const cidPlaceholders = mailBodyRef.value.querySelectorAll('.cid-image')
+    cidPlaceholders.forEach(placeholder => {
+      const cidSrc = placeholder.dataset.cidSrc
+      if (!cidSrc) return
+      
+      const cidId = cidSrc.replace('cid:', '')
+      const attachment = attachments.find(att => 
+        att.contentId === cidId || 
+        att.contentId === `<${cidId}>` ||
+        att.id === cidId
+      )
+      
+      if (attachment && attachment.contentBytes) {
+        // Convertir attachment a data URL
+        const mimeType = attachment.contentType || 'image/png'
+        const dataUrl = `data:${mimeType};base64,${attachment.contentBytes}`
+        
+        // Crear nueva imagen
+        const img = document.createElement('img')
+        img.src = dataUrl
+        img.style.maxWidth = '100%'
+        img.style.height = 'auto'
+        img.style.display = 'block'
+        img.style.margin = '8px 0'
+        img.style.borderRadius = '8px'
+        img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+        
+        // Reemplazar placeholder con imagen real
+        placeholder.parentNode.replaceChild(img, placeholder)
+      }
+    })
+    
+    // Filtrar y cargar attachments para la lista (excluir CID embebidas)
+    currentAttachments.value = attachments.filter(att => {
+      // Excluir attachments que son imágenes CID embebidas (tienen contentId)
+      return !att.contentId || att.contentId === null || att.contentId === ''
+    })
+    
+  } catch (error) {
+    console.error('Error procesando attachments del correo:', error)
+    currentAttachments.value = []
+  }
+}
+
+// Función para cargar todos los attachments de un correo
+async function loadAttachments(messageId) {
+  if (!messageId) return
+  
+  try {
+    const attachments = await obtenerAttachments(messageId)
+    
+    // Filtrar attachments que no son imágenes CID embebidas
+    currentAttachments.value = attachments.filter(att => {
+      // Excluir attachments que son imágenes CID embebidas (tienen contentId)
+      return !att.contentId || att.contentId === null || att.contentId === ''
+    })
+  } catch (error) {
+    console.error('Error cargando attachments:', error)
+    currentAttachments.value = []
+  }
+}
+
+// Función para obtener el ícono según el tipo de archivo
+function getFileIcon(contentTypeOrName) {
+  const contentType = contentTypeOrName?.toLowerCase() || ''
+  const name = contentTypeOrName?.toLowerCase() || ''
+  
+  // Documentos
+  if (contentType.includes('pdf') || name.includes('.pdf')) return '📄'
+  if (contentType.includes('word') || name.includes('.doc') || name.includes('.docx')) return '📝'
+  if (contentType.includes('excel') || contentType.includes('spreadsheet') || name.includes('.xls') || name.includes('.xlsx')) return '📊'
+  if (contentType.includes('powerpoint') || contentType.includes('presentation') || name.includes('.ppt') || name.includes('.pptx')) return '📋'
+  
+  // Imágenes
+  if (contentType.includes('image') || name.match(/\.(jpg|jpeg|png|gif|bmp|svg)$/)) return '🖼️'
+  
+  // Video y Audio
+  if (contentType.includes('video') || name.match(/\.(mp4|avi|mov|wmv|flv)$/)) return '🎥'
+  if (contentType.includes('audio') || name.match(/\.(mp3|wav|ogg|m4a)$/)) return '🎵'
+  
+  // Comprimidos
+  if (contentType.includes('zip') || contentType.includes('rar') || name.match(/\.(zip|rar|7z|tar|gz)$/)) return '📦'
+  
+  // Texto
+  if (contentType.includes('text') || name.includes('.txt')) return '📃'
+  
+  // Por defecto
+  return '📁'
+}
+
+// Función para formatear el tamaño del archivo
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B'
+  
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+// Función para descargar un attachment
+async function downloadAttachment(attachment) {
+  try {
+    if (attachment.contentBytes) {
+      // Si ya tenemos el contenido, crear el download directamente
+      const blob = new Blob([Uint8Array.from(atob(attachment.contentBytes), c => c.charCodeAt(0))], {
+        type: attachment.contentType || 'application/octet-stream'
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = attachment.name || 'attachment'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } else {
+      // Si no tenemos el contenido, hacer petición al backend para descargar
+      const response = await axios.post(
+        `${apiUrl}/descargar_attachment`,
+        { 
+          messageId: mail.value.item?.id,
+          attachmentId: attachment.id 
+        },
+        {
+          responseType: 'blob',
+          headers: {
+            Accept: "application/octet-stream",
+          }
+        }
+      )
+      
+      const blob = new Blob([response.data])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = attachment.name || 'attachment'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
+  } catch (error) {
+    console.error('Error descargando attachment:', error)
+    alert('Error al descargar el archivo. Por favor, inténtalo de nuevo.')
+  }
+}
 </script>
 
 <style>
@@ -558,8 +977,164 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 /* Modal correo */
 .subject{ max-width: calc(100% - 48px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .mail-meta{ display:flex; gap:20px; flex-wrap:wrap; color:#475569; margin-bottom:10px }
-.mail-body{ background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:12px; }
-.mail-body pre{ margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space:pre-wrap }
+.mail-body{ 
+  background:#f8fafc; 
+  border:1px solid var(--border); 
+  border-radius:10px; 
+  padding:12px; 
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* Estilos para el contenido HTML del correo */
+.mail-body p { margin: 0 0 8px 0; }
+.mail-body br { margin: 4px 0; }
+.mail-body div { margin: 2px 0; }
+.mail-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.mail-body td, .mail-body th { padding: 4px 8px; border: 1px solid #ddd; }
+.mail-body a { color: #0ea5e9; text-decoration: underline; }
+.mail-body strong, .mail-body b { font-weight: 600; }
+.mail-body em, .mail-body i { font-style: italic; }
+.mail-body ul, .mail-body ol { margin: 8px 0; padding-left: 20px; }
+.mail-body li { margin: 2px 0; }
+
+/* Estilos para attachments */
+.mail-attachments {
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+.attachments-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.attachment-item:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.attachment-icon {
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-size {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.attachment-download {
+  display: flex;
+  align-items: center;
+}
+
+.download-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.download-btn:hover {
+  background: #e5e7eb;
+}
+.mail-body blockquote { 
+  border-left: 3px solid #ddd; 
+  margin: 8px 0; 
+  padding-left: 12px; 
+  color: #666; 
+}
+
+/* Estilos para imágenes en correos */
+.mail-body img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 8px 0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Placeholder para imágenes que no cargan */
+.mail-body .image-placeholder {
+  margin: 12px 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mail-body .image-placeholder:hover {
+  transform: translateY(-1px);
+  transition: transform 0.2s ease;
+}
+
+/* Mejorar visualización de tablas en correos */
+.mail-body table {
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+}
+
+.mail-body td, .mail-body th {
+  border: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+
+/* Fallback para contenido de texto plano */
+.mail-body pre{ 
+  margin:0; 
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; 
+  white-space:pre-wrap;
+  font-size: 14px;
+}
 
 @media (max-width: 900px){
   .content{ grid-template-columns: 1fr }
