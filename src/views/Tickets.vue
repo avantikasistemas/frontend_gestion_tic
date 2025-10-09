@@ -76,18 +76,18 @@
             </thead>
             <tbody>
               <tr v-for="m in correos" :key="m.id">
-                <td>{{ fmt(m.receivedDateTime) }}</td>
-                <td class="ellipsis" :title="m.from">{{ m.from.emailAddress.name }}</td>
+                <td>{{ fmt(m.receivedAt) }}</td>
+                <td class="ellipsis" :title="m.from">{{ m.from }}</td>
                 <td class="ellipsis">
                   <button class="link" @click="openMail(m)" :title="m.subject">{{ m.subject }}</button>
                 </td>
-                <td class="ellipsis" :title="m.preview">{{ m.bodyPreview }}</td>
+                <td class="ellipsis" :title="m.preview">{{ m.preview }}</td>
                 <td>
                   <div class="inbox-actions">
                     <div class="inbox-buttons">
                       <button class="button sm" @click="openMail(m)">Abrir</button>
-                      <button class="button sm primary" @click="promote(m)">Convertir</button>
-                      <button class="button sm ghost" @click="discard(m)">Descartar</button>
+                      <button class="button sm primary" @click="showConvertConfirmation(m)">Convertir</button>
+                      <button class="button sm ghost" @click="showDiscardConfirmation(m)">Descartar</button>
                     </div>
                   </div>
                 </td>
@@ -253,15 +253,24 @@
       <div class="backdrop" @click="closeMail"></div>
       <div class="sheet" role="dialog" aria-modal="true">
         <div class="sheet-head">
-          <h3 class="subject">{{ mail.item?.subject }}</h3>
+          <h3 class="subject">{{ mail.item?.subject || 'Sin asunto' }}</h3>
           <button class="icon" @click="closeMail">✕</button>
         </div>
         <div class="sheet-body">
           <div class="mail-meta">
-            <div><strong>De:</strong> {{ mail.item?.from.emailAddress.address }}</div>
-            <div><strong>Fecha:</strong> {{ fmt(mail.item?.receivedDateTime) }}</div>
+            <div><strong>De:</strong> {{ mail.item?.from || 'Sin remitente' }}</div>
+            <div><strong>Fecha:</strong> {{ fmt(mail.item?.receivedAt) }}</div>
+            <!-- <div v-if="mail.item?.estado"><strong>Estado:</strong> 
+              <span class="tag" :class="mail.item.estado === 'nuevo' ? 'chip-blue' : 'chip-gray'">{{ mail.item.estado }}</span>
+            </div> -->
+            <div v-if="mail.item?.hasAttachments"><strong>Adjuntos:</strong> 
+              <span class="tag chip-green">{{ mail.item.attachmentsCount || 0 }} archivo(s)</span>
+            </div>
+            <!-- <div v-if="mail.item?.preview && mail.item.preview !== mail.item?.body">
+              <strong>Vista previa:</strong> <span class="muted">{{ mail.item.preview.substring(0, 100) }}{{ mail.item.preview.length > 100 ? '...' : '' }}</span>
+            </div> -->
           </div>
-          <div class="mail-body" v-html="cleanHtmlContent(mail.item?.body.content)" ref="mailBodyRef" :key="mail.item?.id">
+          <div class="mail-body" v-html="cleanHtmlContent(mail.item?.body)" ref="mailBodyRef" :key="mail.item?.id">
           </div>
           
           <!-- Sección de attachments -->
@@ -293,12 +302,91 @@
         <div class="sheet-foot">
           <div class="left"></div>
           <div class="right">
-            <button class="button ghost" @click="discardFromModal">Descartar</button>
-            <button class="button primary" @click="promoteFromModal">Convertir</button>
+            <button class="button ghost" @click="showDiscardConfirmation(mail.item)">Descartar</button>
+            <button class="button primary" @click="showConvertConfirmation(mail.item)">Convertir</button>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- MODAL: Confirmación de descarte -->
+    <div v-if="discardConfirmation.open" class="modal confirmation-modal" @keydown.esc="closeDiscardConfirmation" tabindex="0">
+      <div class="backdrop" @click="closeDiscardConfirmation"></div>
+      <div class="confirmation-sheet" role="dialog" aria-modal="true">
+        <div class="confirmation-icon">
+          <div class="warning-circle">
+            <span class="warning-symbol">⚠️</span>
+          </div>
+        </div>
+        
+        <div class="confirmation-content">
+          <h3 class="confirmation-title">¿Descartar correo?</h3>
+          <p class="confirmation-message">
+            ¿Estás seguro de que quieres descartar este correo? Esta acción no se puede deshacer.
+          </p>
+          <div class="confirmation-details">
+            <div class="mail-preview">
+              <div class="mail-preview-subject">
+                <strong>Asunto:</strong> {{ discardConfirmation.item?.subject || 'Sin asunto' }}
+              </div>
+              <div class="mail-preview-from">
+                <strong>De:</strong> {{ discardConfirmation.item?.from || 'Sin remitente' }}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="confirmation-actions">
+          <button class="button ghost" @click="closeDiscardConfirmation">Cancelar</button>
+          <button class="button danger" @click="confirmDiscard">Sí, descartar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Confirmación de conversión a ticket -->
+    <div v-if="convertConfirmation.open" class="modal confirmation-modal" @keydown.esc="closeConvertConfirmation" tabindex="0">
+      <div class="backdrop" @click="closeConvertConfirmation"></div>
+      <div class="confirmation-sheet" role="dialog" aria-modal="true">
+        <div class="confirmation-icon">
+          <div class="success-circle">
+            <span class="success-symbol">🎫</span>
+          </div>
+        </div>
+        
+        <div class="confirmation-content">
+          <h3 class="confirmation-title">¿Convertir a ticket?</h3>
+          <p class="confirmation-message">
+            ¿Estás seguro de que quieres convertir este correo en un ticket de soporte?
+          </p>
+          <div class="confirmation-details">
+            <div class="mail-preview">
+              <div class="mail-preview-subject">
+                <strong>Asunto:</strong> {{ convertConfirmation.item?.subject || 'Sin asunto' }}
+              </div>
+              <div class="mail-preview-from">
+                <strong>De:</strong> {{ convertConfirmation.item?.from || 'Sin remitente' }}
+              </div>
+              <div class="mail-preview-info">
+                <small class="convert-info">Se creará un nuevo ticket con esta información</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="confirmation-actions">
+          <button class="button ghost" @click="closeConvertConfirmation">Cancelar</button>
+          <button class="button success" @click="confirmConvert">Sí, convertir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlay de carga -->
+  <div v-if="loading" class="loading-overlay">
+      <div class="custom-spinner">
+          <div class="spinner-circle"></div>
+      </div>
+      <p class="loading-text">{{ loading_msg }}</p>
   </div>
 </template>
 
@@ -309,6 +397,9 @@ import { useTickets } from '../store/tickets'
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import apiUrl from "../../config.js";
+
+const loading = ref(false);
+const loading_msg = ref('');
 
 const router = useRouter();
 
@@ -337,7 +428,8 @@ const asignados = computed(()=>{
 // BANDEJA (mock)
 const inbox = ref([])
 onMounted(()=>{
-  try{ const raw=localStorage.getItem('inbox_m365'); if(raw) inbox.value=JSON.parse(raw) }catch{}
+  // try{ const raw=localStorage.getItem('inbox_m365'); if(raw) inbox.value=JSON.parse(raw) }catch{}
+  syncM365();
 })
 watch(inbox, v=> localStorage.setItem('inbox_m365', JSON.stringify(v)), { deep:true })
 
@@ -358,6 +450,9 @@ watch(inbox, v=> localStorage.setItem('inbox_m365', JSON.stringify(v)), { deep:t
 
 const syncM365 = async () => {
   try {
+    loading.value = true;
+    loading_msg.value = 'Buscando...';
+
     const response = await axios.post(
         `${apiUrl}/obtener_correos`, {},
         {
@@ -372,6 +467,9 @@ const syncM365 = async () => {
     }
   } catch (error) {
     console.error('Error al obtener correos:', error);
+  } finally {
+    loading.value = false;
+    loading_msg.value = '';
   }
 }
 
@@ -409,24 +507,95 @@ const obtenerAttachments = async (messageId) => {
 function promote(m){
   const t = {
     id: genId(),
-    titulo: m.subject,
-    solicitante: m.from.replace(/<.*?>/g,'').trim(),
-    descripcion: m.body || m.preview,
+    titulo: m.subject || 'Sin asunto',
+    solicitante: m.from ? m.from.replace(/<.*?>/g,'').trim() : 'Sin remitente',
+    descripcion: m.body || m.preview || 'Sin descripción',
     prioridad: m.prioridad || 'Media',
     estadoTicket: 'Abierto',
     tipoSoporte: m.tipoSoporte || '',
     tipoTicket: m.tipoTicket || 'Gestión',
     macroproceso: m.macroproceso || '',
     asignadoA: m.asignadoA || '',
-    creadoEn: m.receivedAt,
+    creadoEn: m.receivedAt || new Date().toISOString(),
     actualizadoEn: new Date().toISOString(),
     vencimiento: '',
     slaHoras: 24
   }
   state.tickets.unshift(t)
-  inbox.value = inbox.value.filter(x=> x.id!==m.id)
+  correos.value = correos.value.filter(x=> x.id!==m.id)
 }
-function discard(m){ inbox.value = inbox.value.filter(x=> x.id!==m.id) }
+
+// Función para convertir correo a ticket con consumo al backend
+async function convertToTicket(m) {
+  try {
+    loading.value = true;
+    loading_msg.value = 'Convirtiendo a ticket...';
+
+    const response = await axios.post(
+      `${apiUrl}/convertir_correo_ticket`,
+      { 
+        messageId: m.id || m.messageId,
+        id: m.id || m.messageId 
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      // Crear el ticket localmente usando la función promote existente
+      promote(m);
+      console.log('Correo convertido a ticket exitosamente:', response.data.message);
+    } else {
+      console.error('Error convirtiendo correo a ticket:', response.data.message);
+      alert('Error al convertir el correo a ticket. Inténtalo de nuevo.');
+    }
+  } catch (error) {
+    console.error('Error al convertir correo a ticket:', error);
+    alert('Error de conexión al convertir el correo a ticket. Inténtalo de nuevo.');
+  } finally {
+    loading.value = false;
+    loading_msg.value = '';
+  }
+}
+
+// Función para descartar correo con consumo al backend
+async function discard(m) {
+  try {
+    loading.value = true;
+    loading_msg.value = 'Descartando correo...';
+
+    const response = await axios.post(
+      `${apiUrl}/descartar_correo`,
+      { 
+        messageId: m.id || m.messageId,
+        id: m.id || m.messageId 
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      // Remover el correo de la lista local solo si el backend confirma el descarte
+      correos.value = correos.value.filter(x => x.id !== m.id);
+      console.log('Correo descartado exitosamente:', response.data.message);
+    } else {
+      console.error('Error descartando correo:', response.data.message);
+      alert('Error al descartar el correo. Inténtalo de nuevo.');
+    }
+  } catch (error) {
+    console.error('Error al descartar correo:', error);
+    alert('Error de conexión al descartar el correo. Inténtalo de nuevo.');
+  } finally {
+    loading.value = false;
+    loading_msg.value = '';
+  }
+}
 
 // Modal correo
 const mail = ref({ open:false, item:null })
@@ -440,7 +609,56 @@ function closeMail(){
   lockScroll(false) 
 }
 function promoteFromModal(){ if(mail.value.item){ promote(mail.value.item); closeMail() } }
-function discardFromModal(){ if(mail.value.item){ discard(mail.value.item); closeMail() } }
+
+// Modal de confirmación de descarte
+const discardConfirmation = ref({ open: false, item: null })
+
+function showDiscardConfirmation(mailItem) {
+  discardConfirmation.value = { open: true, item: mailItem }
+  lockScroll(true)
+}
+
+function closeDiscardConfirmation() {
+  discardConfirmation.value = { open: false, item: null }
+  lockScroll(false)
+}
+
+async function confirmDiscard() {
+  if (discardConfirmation.value.item) {
+    await discard(discardConfirmation.value.item)
+    closeDiscardConfirmation()
+    
+    // Si el correo estaba abierto en el modal, cerrarlo también
+    if (mail.value.open && mail.value.item?.id === discardConfirmation.value.item.id) {
+      closeMail()
+    }
+  }
+}
+
+// Modal de confirmación de conversión a ticket
+const convertConfirmation = ref({ open: false, item: null })
+
+function showConvertConfirmation(mailItem) {
+  convertConfirmation.value = { open: true, item: mailItem }
+  lockScroll(true)
+}
+
+function closeConvertConfirmation() {
+  convertConfirmation.value = { open: false, item: null }
+  lockScroll(false)
+}
+
+async function confirmConvert() {
+  if (convertConfirmation.value.item) {
+    await convertToTicket(convertConfirmation.value.item)
+    closeConvertConfirmation()
+    
+    // Si el correo estaba abierto en el modal, cerrarlo también
+    if (mail.value.open && mail.value.item?.id === convertConfirmation.value.item.id) {
+      closeMail()
+    }
+  }
+}
 
 // Watcher optimizado para procesar imágenes CID y cargar attachments con una sola llamada API
 watch([() => mail.value.item, () => mail.value.open], async ([newMail, isOpen]) => {
@@ -580,7 +798,7 @@ function focusModal(){ const el=document.querySelector('.modal'); el && el.focus
 
 // Función para limpiar y formatear el contenido HTML del correo (síncrona)
 function cleanHtmlContent(htmlContent) {
-  if (!htmlContent) return ''
+  if (!htmlContent) return '<div class="empty">Sin contenido</div>'
   
   const tempDiv = document.createElement('div')
   tempDiv.innerHTML = htmlContent
@@ -628,6 +846,7 @@ function cleanHtmlContent(htmlContent) {
     } else {
       // Para imágenes con URLs válidas, aplicar estilos y manejo de errores
       img.style.maxWidth = '100%'
+      img.style.width = '50%'
       img.style.height = 'auto'
       img.style.display = 'block'
       img.style.margin = '8px 0'
@@ -713,6 +932,7 @@ async function processCidImages(messageId) {
         const img = document.createElement('img')
         img.src = dataUrl
         img.style.maxWidth = '100%'
+        img.style.width = '50%'
         img.style.height = 'auto'
         img.style.display = 'block'
         img.style.margin = '8px 0'
@@ -960,6 +1180,12 @@ async function downloadAttachment(attachment) {
 .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.35) }
 .sheet{ position:relative; width:min(980px, 90vw); max-height:90vh; background:#fff; border:1px solid var(--border);
         border-radius:14px; display:flex; flex-direction:column; overflow:hidden }
+
+/* Modal de correo más grande */
+.modal .sheet:has(.mail-body) { 
+  width:min(1500px, 95vw); 
+  max-height:95vh; 
+}
 .sheet-head{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #eef2f7 }
 .sheet-body{ padding:12px; overflow:auto }
 .sheet-foot{ padding:10px 12px; border-top:1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; gap:8px }
@@ -982,7 +1208,7 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
   border:1px solid var(--border); 
   border-radius:10px; 
   padding:12px; 
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   line-height: 1.5;
 }
@@ -1025,11 +1251,11 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 .attachment-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 6px 8px;
   background: #f9fafb;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -1042,12 +1268,12 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 }
 
 .attachment-icon {
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
 }
 
 .attachment-info {
@@ -1056,7 +1282,7 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 }
 
 .attachment-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #111827;
   white-space: nowrap;
@@ -1065,9 +1291,9 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 }
 
 .attachment-size {
-  font-size: 12px;
+  font-size: 11px;
   color: #6b7280;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .attachment-download {
@@ -1140,5 +1366,217 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
   .content{ grid-template-columns: 1fr }
   .grid2{ grid-template-columns: 1fr }
   .ellipsis{ max-width: 220px }
+}
+
+/* Overlay de carga */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(44, 62, 80, 0.45);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Spinner circular personalizado */
+.custom-spinner {
+    position: relative;
+    width: 60px;
+    height: 60px;
+    margin-bottom: 20px;
+}
+
+.spinner-circle {
+    width: 100%;
+    height: 100%;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top: 4px solid #0ea5e9;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+}
+
+@keyframes spin {
+    0% { 
+        transform: rotate(0deg); 
+    }
+    100% { 
+        transform: rotate(360deg); 
+    }
+}
+
+.loading-text {
+    color: #fff;
+    font-size: 1.15rem;
+    text-align: center;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ===== Modal de Confirmación ===== */
+.confirmation-modal {
+  z-index: 70; /* Más alto que otros modales */
+}
+
+.confirmation-sheet {
+  position: relative;
+  width: min(480px, 90vw);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px 24px 24px;
+  text-align: center;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.confirmation-icon {
+  margin-bottom: 20px;
+}
+
+.warning-circle {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fbbf24 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 16px rgba(251, 191, 36, 0.3);
+}
+
+.warning-symbol {
+  font-size: 28px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+.confirmation-content {
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.confirmation-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 12px 0;
+}
+
+.confirmation-message {
+  font-size: 0.95rem;
+  color: #6b7280;
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+
+.confirmation-details {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+}
+
+.mail-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mail-preview-subject,
+.mail-preview-from {
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.mail-preview-subject strong,
+.mail-preview-from strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  justify-content: center;
+}
+
+.confirmation-actions .button {
+  flex: 1;
+  max-width: 140px;
+  justify-content: center;
+  font-weight: 500;
+}
+
+.button.danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+  transition: all 0.2s ease;
+}
+
+.button.danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(220, 38, 38, 0.3);
+}
+
+.button.danger:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+}
+
+/* Estilos para modal de conversión */
+.success-circle {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #dcfce7 0%, #22c55e 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 16px rgba(34, 197, 94, 0.3);
+}
+
+.success-symbol {
+  font-size: 28px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+.convert-info {
+  color: #6b7280;
+  font-style: italic;
+  margin-top: 8px;
+  display: block;
+}
+
+.button.success {
+  background: #22c55e;
+  color: #fff;
+  border-color: #22c55e;
+  transition: all 0.2s ease;
+}
+
+.button.success:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
+}
+
+.button.success:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(34, 197, 94, 0.3);
 }
 </style>
