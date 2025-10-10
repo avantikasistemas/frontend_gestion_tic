@@ -8,10 +8,6 @@
           <option value="">— Estado —</option>
           <option v-for="e in estados" :key="e.id" :value="e.id">{{ e.id }} - {{ e.nombre }}</option>
         </select>
-        <select v-model="fPrioridad" class="input">
-          <option value="">— Prioridad —</option>
-          <option v-for="p in prioridades" :key="p.id" :value="p.id">{{ p.id }}</option>
-        </select>
         <select v-model="fAsignado" class="input">
           <option value="">— Asignado a —</option>
           <option v-for="p in asignados" :key="p" :value="p">{{ p }}</option>
@@ -42,7 +38,7 @@
         <div class="views">
           <div class="vhead">
             <span>Vistas</span>
-            <button class="icon" @click="refresh" title="Refrescar">⟳</button>
+            <!-- <button class="icon" @click="refresh" title="Refrescar">⟳</button> -->
           </div>
           <ul>
             <li :class="{active: vista==='inbox'}" @click="vista='inbox'">
@@ -169,7 +165,34 @@
 
             <label class="span2">
               <span>Descripción</span>
-              <textarea v-model="form.descripcion" class="input area" rows="3" />
+              <div class="ticket-body" v-html="cleanHtmlForTicketModal(form.descripcion)" ref="ticketBodyRef" :key="form.id">
+              </div>
+              
+              <!-- Sección de attachments del ticket -->
+              <div v-if="ticketAttachments.length > 0" class="ticket-attachments">
+                <h4 class="attachments-title">📎 Archivos adjuntos del ticket ({{ ticketAttachments.length }})</h4>
+                <div class="attachments-list">
+                  <div 
+                    v-for="attachment in ticketAttachments" 
+                    :key="attachment.id" 
+                    class="attachment-item"
+                    @click="downloadAttachment(attachment)"
+                  >
+                    <div class="attachment-icon">
+                      {{ getFileIcon(attachment.contentType || attachment.name) }}
+                    </div>
+                    <div class="attachment-info">
+                      <div class="attachment-name">{{ attachment.name }}</div>
+                      <div class="attachment-size">{{ formatFileSize(attachment.size) }}</div>
+                    </div>
+                    <div class="attachment-download">
+                      <button class="download-btn" @click.stop="downloadAttachment(attachment)">
+                        ⬇️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </label>
 
             <label>
@@ -378,6 +401,30 @@
     </div>
   </div>
 
+  <!-- MODAL: Visor de imágenes -->
+  <div v-if="imageViewer.open" class="modal image-viewer-modal" @keydown.esc="closeImageViewer" tabindex="0">
+    <div class="backdrop" @click="closeImageViewer"></div>
+    <div class="image-viewer-container" role="dialog" aria-modal="true">
+      <div class="image-viewer-header">
+        <h3 class="image-viewer-title">{{ imageViewer.title || imageViewer.alt || 'Imagen' }}</h3>
+        <button class="icon close-btn" @click="closeImageViewer">✕</button>
+      </div>
+      
+      <div class="image-viewer-content">
+        <img 
+          :src="imageViewer.src" 
+          :alt="imageViewer.alt"
+          class="viewer-image"
+          @error="handleImageError"
+        />
+      </div>
+      
+      <div class="image-viewer-footer">
+        <small class="image-info">{{ imageViewer.alt }}</small>
+      </div>
+    </div>
+  </div>
+
   <!-- Overlay de carga -->
   <div v-if="loading" class="loading-overlay">
       <div class="custom-spinner">
@@ -408,6 +455,16 @@ const token = ref('');
 const attachmentsCache = ref(new Map()); // Cache para attachments
 const mailBodyRef = ref(null); // Referencia al contenedor del mail body
 const currentAttachments = ref([]); // Attachments del correo actual
+const ticketBodyRef = ref(null); // Referencia al contenedor del body del ticket
+const ticketAttachments = ref([]); // Attachments del ticket en edición
+
+// Visor de imágenes
+const imageViewer = ref({
+  open: false,
+  src: '',
+  alt: '',
+  title: ''
+});
 
 // Catálogos
 const estados = ref([]);
@@ -673,9 +730,17 @@ const cargarTecnicosGestionTic = async () => {
 // Función para obtener attachments de un correo específico
 const obtenerAttachments = async (messageId) => {
   try {
+    console.log('obtenerAttachments llamado con messageId:', messageId, 'token disponible:', !!token.value);
+    
     // Verificar si ya están en caché
     if (attachmentsCache.value.has(messageId)) {
+      console.log('Attachments encontrados en caché para:', messageId);
       return attachmentsCache.value.get(messageId);
+    }
+    
+    if (!token.value) {
+      console.warn('No hay token disponible para obtener attachments');
+      return [];
     }
     
     const response = await axios.post(
@@ -688,8 +753,11 @@ const obtenerAttachments = async (messageId) => {
       }
     );
     
+    console.log('Response obtener_attachments:', response.status, response.data);
+    
     if (response.status === 200) {
       const attachments = response.data.data || [];
+      console.log('Attachments obtenidos:', attachments.length);
       // Guardar en caché
       attachmentsCache.value.set(messageId, attachments);
       return attachments;
@@ -965,9 +1033,9 @@ function openTicket(t){
   form.value.titulo = t.subject || t.titulo || '';
   form.value.solicitante = t.from_name || t.solicitante || '';
   
-  // Limpiar HTML de la descripción
+  // Mantener HTML de la descripción para renderizado
   const rawDescription = t.body || '';
-  form.value.descripcion = cleanHtmlForTextarea(rawDescription);
+  form.value.descripcion = rawDescription;
   
   // Asegurar que los valores estén correctamente seteados para los selects
   if (t.prioridad && typeof t.prioridad === 'object') {
@@ -1019,7 +1087,12 @@ function openTicket(t){
   
   reply.value = { tipo:'public', texto:'' }
   lockScroll(true)
-  nextTick(()=> focusModal())
+  
+  // Cargar adjuntos del ticket si viene de un correo
+  nextTick(async () => {
+    focusModal();
+    await processTicketAttachments(t);
+  })
 }
 function openNew(){
   modal.value = { open:true, mode:'create' }
@@ -1036,7 +1109,38 @@ function openNew(){
   lockScroll(true)
   nextTick(()=> focusModal())
 }
-function closeModal(){ modal.value.open=false; lockScroll(false) }
+function closeModal(){ 
+  modal.value.open=false; 
+  // Limpiar adjuntos del ticket al cerrar modal
+  ticketAttachments.value = [];
+  lockScroll(false); 
+}
+
+// Funciones del visor de imágenes
+function openImageViewer(src, alt, title) {
+  imageViewer.value = {
+    open: true,
+    src: src,
+    alt: alt || 'Imagen',
+    title: title || alt || 'Imagen'
+  };
+  lockScroll(true);
+  nextTick(() => {
+    const viewer = document.querySelector('.image-viewer-modal');
+    viewer && viewer.focus();
+  });
+}
+
+function closeImageViewer() {
+  imageViewer.value.open = false;
+  lockScroll(false);
+}
+
+function handleImageError() {
+  console.error('Error al cargar la imagen en el visor');
+  closeImageViewer();
+  alert('Error al cargar la imagen');
+}
 
 function save(){
   if(!form.value.titulo?.trim()){ alert('El título es obligatorio'); return }
@@ -1122,6 +1226,14 @@ function cleanHtmlContent(htmlContent) {
       img.style.margin = '8px 0'
       img.style.borderRadius = '8px'
       img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+      img.style.cursor = 'pointer'
+      img.style.transition = 'all 0.3s ease'
+      img.className = 'mail-image-clickable'
+      
+      // Agregar evento de clic para abrir el visor
+      img.addEventListener('click', () => {
+        openImageViewer(src, alt, alt);
+      })
       
       // Manejo de errores para imágenes externas
       img.onerror = function() {
@@ -1201,6 +1313,7 @@ async function processCidImages(messageId) {
         // Crear nueva imagen
         const img = document.createElement('img')
         img.src = dataUrl
+        img.alt = attachment.name || 'Imagen CID'
         img.style.maxWidth = '100%'
         img.style.width = '50%'
         img.style.height = 'auto'
@@ -1208,6 +1321,14 @@ async function processCidImages(messageId) {
         img.style.margin = '8px 0'
         img.style.borderRadius = '8px'
         img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
+        img.style.cursor = 'pointer'
+        img.style.transition = 'all 0.3s ease'
+        img.className = 'mail-image-clickable cid-processed'
+        
+        // Agregar evento de clic para abrir el visor
+        img.addEventListener('click', () => {
+          openImageViewer(dataUrl, img.alt, img.alt);
+        })
         
         // Reemplazar placeholder con imagen real
         placeholder.parentNode.replaceChild(img, placeholder)
@@ -1215,6 +1336,87 @@ async function processCidImages(messageId) {
     })
   } catch (error) {
     console.error('Error procesando imágenes CID:', error)
+  }
+}
+
+// Función para procesar attachments del ticket en el modal de edición
+async function processTicketAttachments(ticket) {
+  // Debug: verificar qué campos tiene el ticket
+  console.log('Ticket object:', ticket);
+  console.log('Available keys:', Object.keys(ticket));
+  
+  // Buscar el message_id en diferentes posibles campos
+  const messageId = ticket?.message_id || ticket?.messageId || ticket?.id || ticket?.correo_id;
+  
+  if (!messageId || !ticketBodyRef.value) {
+    console.log('No messageId found or ticketBodyRef not available:', { messageId, ticketBodyRef: !!ticketBodyRef.value });
+    ticketAttachments.value = [];
+    return;
+  }
+  
+  try {
+    console.log('Intentando obtener attachments para messageId:', messageId);
+    // Obtener attachments del correo original usando el message_id del ticket
+    const attachments = await obtenerAttachments(messageId);
+    
+    // Procesar imágenes CID en el modal de ticket
+    const cidPlaceholders = ticketBodyRef.value.querySelectorAll('.cid-image-ticket');
+    cidPlaceholders.forEach(placeholder => {
+      const cidSrc = placeholder.dataset.cidSrc;
+      if (!cidSrc) return;
+      
+      const cidId = cidSrc.replace('cid:', '');
+      const attachment = attachments.find(att => 
+        att.contentId === cidId || 
+        att.contentId === `<${cidId}>` ||
+        att.id === cidId
+      );
+      
+      if (attachment && attachment.contentBytes) {
+        // Convertir attachment a data URL
+        const mimeType = attachment.contentType || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${attachment.contentBytes}`;
+        
+        // Crear nueva imagen más pequeña para el modal de ticket
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.alt = attachment.name || 'Imagen CID';
+        img.style.maxWidth = '100%';
+        img.style.width = '30%'; // Más pequeña que en modal de correo
+        img.style.height = 'auto';
+        img.style.display = 'block';
+        img.style.margin = '4px 0';
+        img.style.borderRadius = '6px';
+        img.style.boxShadow = '0 1px 4px rgba(0,0,0,0.1)';
+        img.style.cursor = 'pointer';
+        img.style.transition = 'all 0.3s ease';
+        img.className = 'ticket-image-clickable cid-processed';
+        
+        // Agregar evento de clic para abrir el visor
+        img.addEventListener('click', () => {
+          openImageViewer(dataUrl, img.alt, img.alt);
+        });
+        
+        // Reemplazar placeholder con imagen real
+        placeholder.parentNode.replaceChild(img, placeholder);
+      }
+    });
+    
+    // Filtrar y cargar attachments para la lista (excluir CID embebidas)
+    ticketAttachments.value = attachments.filter(att => {
+      // Excluir attachments que son imágenes CID embebidas (tienen contentId)
+      return !att.contentId || att.contentId === null || att.contentId === '';
+    });
+    
+    console.log('Attachments procesados:', {
+      totalAttachments: attachments.length,
+      cidPlaceholders: ticketBodyRef.value.querySelectorAll('.cid-image-ticket').length,
+      ticketAttachments: ticketAttachments.value.length
+    });
+    
+  } catch (error) {
+    console.error('Error procesando attachments del ticket:', error);
+    ticketAttachments.value = [];
   }
 }
 
@@ -1410,6 +1612,115 @@ function cleanHtmlForTextarea(htmlContent) {
   
   return cleanText;
 }
+
+// Función para limpiar y formatear el contenido HTML del ticket (similar a cleanHtmlContent pero con imágenes más pequeñas)
+function cleanHtmlForTicketModal(htmlContent) {
+  if (!htmlContent) return '<div class="empty">Sin contenido</div>'
+  
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = htmlContent
+  
+  // Procesar imágenes para el modal de ticket (más pequeñas)
+  const images = tempDiv.querySelectorAll('img')
+  
+  images.forEach(img => {
+    const src = img.getAttribute('src')
+    const alt = img.getAttribute('alt') || 'Imagen'
+    
+    // Para imágenes CID, mostrar placeholder inmediatamente
+    if (src && src.startsWith('cid:')) {
+      const placeholder = document.createElement('div')
+      placeholder.className = 'image-placeholder cid-image-ticket'
+      placeholder.dataset.cidSrc = src
+      
+      const cidId = src.replace('cid:', '')
+      const cidInfo = `<br><small style="font-family: monospace; font-size: 10px; color: #9ca3af;">CID: ${cidId.substring(0, 8)}...</small>`
+      
+      placeholder.innerHTML = `
+        <div style="
+          background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); 
+          border: 2px dashed #d1d5db; 
+          border-radius: 8px; 
+          padding: 12px 8px; 
+          text-align: center; 
+          color: #6b7280; 
+          margin: 6px 0;
+          font-size: 12px;
+          position: relative;
+          overflow: hidden;
+        ">
+          <div style="font-size: 20px; margin-bottom: 4px;">🖼️</div>
+          <div style="font-weight: 600; margin-bottom: 2px; font-size: 11px;">Imagen adjunta</div>
+          <div style="font-size: 10px;">${alt}</div>
+          ${cidInfo}
+        </div>
+      `
+      img.parentNode.replaceChild(placeholder, img)
+    } else {
+      // Para imágenes con URLs válidas, aplicar estilos más pequeños
+      img.style.maxWidth = '100%'
+      img.style.width = '30%' // Más pequeñas que en el modal de correo (era 50%)
+      img.style.height = 'auto'
+      img.style.display = 'block'
+      img.style.margin = '4px 0' // Menos margen
+      img.style.borderRadius = '6px'
+      img.style.boxShadow = '0 1px 4px rgba(0,0,0,0.1)'
+      img.style.cursor = 'pointer'
+      img.style.transition = 'all 0.3s ease'
+      img.className = 'ticket-image-clickable'
+      
+      // Agregar evento de clic para abrir el visor
+      img.addEventListener('click', () => {
+        openImageViewer(src, alt, alt);
+      })
+      
+      // Manejo de errores para imágenes externas
+      img.onerror = function() {
+        const errorPlaceholder = document.createElement('div')
+        errorPlaceholder.innerHTML = `
+          <div style="
+            background: #fef2f2; 
+            border: 1px dashed #fca5a5; 
+            border-radius: 6px; 
+            padding: 8px; 
+            text-align: center; 
+            color: #dc2626; 
+            margin: 4px 0;
+            font-size: 12px;
+          ">
+            <div style="font-size: 16px; margin-bottom: 4px;">❌</div>
+            <div style="font-weight: 600; font-size: 11px;">Error al cargar imagen</div>
+            <div style="font-size: 10px; margin-top: 2px; opacity: 0.8;">${alt}</div>
+          </div>
+        `
+        this.parentNode.replaceChild(errorPlaceholder, this)
+      }
+    }
+  })
+  
+  // Limpiar atributos potencialmente peligrosos
+  const allElements = tempDiv.querySelectorAll('*')
+  allElements.forEach(el => {
+    // Mantener solo atributos seguros
+    const allowedAttrs = ['href', 'src', 'alt', 'title', 'class', 'style']
+    const attrs = [...el.attributes]
+    attrs.forEach(attr => {
+      if (!allowedAttrs.includes(attr.name.toLowerCase()) && 
+          !attr.name.startsWith('data-')) {
+        el.removeAttribute(attr.name)
+      }
+    })
+    
+    // Limpiar hrefs javascript:
+    if (el.hasAttribute('href') && el.getAttribute('href').startsWith('javascript:')) {
+      el.removeAttribute('href')
+    }
+  })
+  
+  // Aplicar estilos básicos para mejorar la presentación
+  const content = tempDiv.innerHTML
+  return content || htmlContent.replace(/<[^>]*>/g, '') // fallback a texto plano si falla
+}
 </script>
 
 <style>
@@ -1482,13 +1793,13 @@ function cleanHtmlForTextarea(htmlContent) {
 /* ===== Modales comunes ===== */
 .modal{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:60; outline:none }
 .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.35) }
-.sheet{ position:relative; width:min(980px, 90vw); max-height:90vh; background:#fff; border:1px solid var(--border);
+.sheet{ position:relative; width:min(1200px, 95vw); max-height:95vh; background:#fff; border:1px solid var(--border);
         border-radius:14px; display:flex; flex-direction:column; overflow:hidden }
 
 /* Modal de correo más grande */
 .modal .sheet:has(.mail-body) { 
-  width:min(1500px, 95vw); 
-  max-height:95vh; 
+  width:min(1600px, 98vw); 
+  max-height:98vh; 
 }
 .sheet-head{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #eef2f7 }
 .sheet-body{ padding:12px; overflow:auto }
@@ -1528,6 +1839,74 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 .mail-body em, .mail-body i { font-style: italic; }
 .mail-body ul, .mail-body ol { margin: 8px 0; padding-left: 20px; }
 .mail-body li { margin: 2px 0; }
+
+/* Estilos para el modal de tickets */
+.ticket-body{ 
+  background:#f8fafc; 
+  border:1px solid var(--border); 
+  border-radius:10px; 
+  padding:10px; 
+  max-height: 300px; /* Más compacto que el modal de correo */
+  overflow-y: auto;
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
+
+/* Estilos para el contenido HTML del ticket (más compactos) */
+.ticket-body p { margin: 0 0 6px 0; }
+.ticket-body br { margin: 2px 0; }
+.ticket-body div { margin: 1px 0; }
+.ticket-body table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 0.85rem; }
+.ticket-body td, .ticket-body th { padding: 3px 6px; border: 1px solid #ddd; }
+.ticket-body a { color: #0ea5e9; text-decoration: underline; }
+.ticket-body strong, .ticket-body b { font-weight: 600; }
+.ticket-body em, .ticket-body i { font-style: italic; }
+.ticket-body ul, .ticket-body ol { margin: 6px 0; padding-left: 16px; }
+.ticket-body li { margin: 1px 0; }
+
+/* Estilos para imágenes en modal de ticket (más pequeñas) */
+.ticket-body img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 4px 0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Placeholder para imágenes en modal de ticket */
+.ticket-body .image-placeholder {
+  margin: 6px 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Estilos para attachments del ticket */
+.ticket-attachments {
+  margin-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+}
+
+.ticket-attachments .attachments-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 6px 0;
+}
+
+.ticket-attachments .attachment-item {
+  padding: 4px 6px;
+  font-size: 0.85rem;
+}
+
+.ticket-attachments .attachment-name {
+  font-size: 12px;
+}
+
+.ticket-attachments .attachment-size {
+  font-size: 10px;
+}
 
 /* Estilos para attachments */
 .mail-attachments {
@@ -1617,6 +1996,74 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 
 .download-btn:hover {
   background: #e5e7eb;
+}
+
+/* Modal de ticket - estilos para contenido HTML */
+.ticket-body{ 
+  background:#f8fafc; 
+  border:1px solid var(--border); 
+  border-radius:10px; 
+  padding:10px; 
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
+
+/* Estilos para el contenido HTML del ticket (más compactos) */
+.ticket-body p { margin: 0 0 6px 0; }
+.ticket-body br { margin: 2px 0; }
+.ticket-body div { margin: 1px 0; }
+.ticket-body table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 0.85rem; }
+.ticket-body td, .ticket-body th { padding: 3px 6px; border: 1px solid #ddd; }
+.ticket-body a { color: #0ea5e9; text-decoration: underline; }
+.ticket-body strong, .ticket-body b { font-weight: 600; }
+.ticket-body em, .ticket-body i { font-style: italic; }
+.ticket-body ul, .ticket-body ol { margin: 6px 0; padding-left: 16px; }
+.ticket-body li { margin: 1px 0; }
+
+/* Estilos para imágenes en modal de ticket (más pequeñas) */
+.ticket-body img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 4px 0;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* Placeholder para imágenes en modal de ticket */
+.ticket-body .image-placeholder {
+  margin: 6px 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Estilos para attachments del ticket */
+.ticket-attachments {
+  margin-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+}
+
+.ticket-attachments .attachments-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 6px 0;
+}
+
+.ticket-attachments .attachment-item {
+  padding: 4px 6px;
+  font-size: 0.85rem;
+}
+
+.ticket-attachments .attachment-name {
+  font-size: 12px;
+}
+
+.ticket-attachments .attachment-size {
+  font-size: 10px;
 }
 .mail-body blockquote { 
   border-left: 3px solid #ddd; 
@@ -1882,5 +2329,140 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 .button.success:active {
   transform: translateY(0);
   box-shadow: 0 2px 4px rgba(34, 197, 94, 0.3);
+}
+
+/* ===== Efectos de hover para imágenes ===== */
+.mail-image-clickable:hover,
+.ticket-image-clickable:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2) !important;
+  opacity: 0.9;
+  filter: brightness(1.1);
+}
+
+.mail-image-clickable:active,
+.ticket-image-clickable:active {
+  transform: scale(0.98);
+}
+
+/* ===== Modal del visor de imágenes ===== */
+.image-viewer-modal {
+  z-index: 70; /* Por encima de otras modales */
+}
+
+.image-viewer-modal .backdrop {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.image-viewer-container {
+  position: relative;
+  width: min(90vw, 1200px);
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.image-viewer-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1e293b;
+  max-width: calc(100% - 40px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close-btn {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #64748b;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.close-btn:hover {
+  background: #f1f5f9;
+  color: #475569;
+  transform: scale(1.05);
+}
+
+.image-viewer-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  object-fit: contain;
+  transition: transform 0.3s ease;
+}
+
+.viewer-image:hover {
+  transform: scale(1.02);
+}
+
+.image-viewer-footer {
+  padding: 12px 20px;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.image-info {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+/* Responsive para dispositivos móviles */
+@media (max-width: 768px) {
+  .image-viewer-container {
+    width: 95vw;
+    max-height: 95vh;
+  }
+  
+  .image-viewer-header {
+    padding: 12px 16px;
+  }
+  
+  .image-viewer-title {
+    font-size: 1.1rem;
+  }
+  
+  .image-viewer-content {
+    padding: 15px;
+  }
+  
+  .image-viewer-footer {
+    padding: 10px 16px;
+  }
 }
 </style>
