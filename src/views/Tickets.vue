@@ -587,10 +587,15 @@ const cargarTicketsCorreos = async (vistaSeleccionada = 'todos') => {
 // Función para actualizar contadores de todas las vistas de manera eficiente
 const actualizarContadores = async () => {
   try {
+    // Vistas base del sistema
     const vistasActualizar = ['todos', 'sin', 'abiertos', 'proceso', 'comp'];
     
+    // Agregar vistas de técnicos dinámicamente
+    const vistasTecnicos = tecnicos.value.map(tecnico => `tecnico_${tecnico.id}`);
+    const todasLasVistas = [...vistasActualizar, ...vistasTecnicos];
+    
     // Hacer peticiones en paralelo para eficiencia
-    const promesas = vistasActualizar.map(async (vistaKey) => {
+    const promesas = todasLasVistas.map(async (vistaKey) => {
       const response = await axios.post(
         `${apiUrl}/obtener_tickets_correos`,
         { 
@@ -882,17 +887,27 @@ const vistasCounts = ref({
   comp: 0
 })
 
-const vistas = computed(()=>[
-  { key:'todos', label:'Todos', count: () => vistasCounts.value.todos },
-  { key:'sin', label:'Sin asignar', count: () => vistasCounts.value.sin },
-  { key:'abiertos', label:'Abiertos', count: () => vistasCounts.value.abiertos },
-  { key:'proceso', label:'En Proceso', count: () => vistasCounts.value.proceso },
-  { key:'comp', label:'Completado', count: () => vistasCounts.value.comp },
-  // Dejamos estas para más tarde como mencionaste
-  { key:'j', label:'Tickets – Jeyson', count: () => 0 },
-  { key:'v', label:'Tickets – Víctor', count: () => 0 },
-  { key:'h', label:'Tickets – Heyder', count: () => 0 },
-])
+const vistas = computed(() => {
+  // Vistas base del sistema
+  const vistasBase = [
+    { key:'todos', label:'Todos', count: () => vistasCounts.value.todos },
+    { key:'sin', label:'Sin asignar', count: () => vistasCounts.value.sin },
+    { key:'abiertos', label:'Abiertos', count: () => vistasCounts.value.abiertos },
+    { key:'proceso', label:'En Proceso', count: () => vistasCounts.value.proceso },
+    { key:'comp', label:'Completado', count: () => vistasCounts.value.comp },
+  ];
+  
+  // Generar vistas dinámicas para cada técnico cargado desde el backend
+  const vistasTecnicos = tecnicos.value.map(tecnico => ({
+    key: `tecnico_${tecnico.id}`,
+    label: `Tickets – ${tecnico.nombre}`,
+    count: () => vistasCounts.value[`tecnico_${tecnico.id}`] || 0,
+    tecnicoId: tecnico.id,
+    tecnicoNombre: tecnico.nombre
+  }));
+  
+  return [...vistasBase, ...vistasTecnicos];
+})
 
 const filteredBase = computed(()=>{
   // Si estamos en la bandeja, usar correos normales
