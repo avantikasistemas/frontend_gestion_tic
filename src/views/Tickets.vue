@@ -6,11 +6,11 @@
         <input v-model="q" class="input search" placeholder="ID, asunto/título, descripción, solicitante…" />
         <select v-model="fEstado" class="input">
           <option value="">— Estado —</option>
-          <option v-for="e in estados" :key="e" :value="e">{{ e }}</option>
+          <option v-for="e in estados" :key="e.id" :value="e.id">{{ e.id }} - {{ e.nombre }}</option>
         </select>
         <select v-model="fPrioridad" class="input">
           <option value="">— Prioridad —</option>
-          <option v-for="p in prioridades" :key="p" :value="p">{{ p }}</option>
+          <option v-for="p in prioridades" :key="p.id" :value="p.id">{{ p.id }}</option>
         </select>
         <select v-model="fAsignado" class="input">
           <option value="">— Asignado a —</option>
@@ -18,15 +18,15 @@
         </select>
         <select v-model="fTipoSoporte" class="input">
           <option value="">— Tipo de Soporte —</option>
-          <option v-for="t in tiposSoporte" :key="t">{{ t }}</option>
+          <option v-for="t in tiposSoporte" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
         </select>
         <select v-model="fMacro" class="input">
           <option value="">— Macroproceso —</option>
-          <option v-for="m in macros" :key="m">{{ m }}</option>
+          <option v-for="m in macroprocesos" :key="m.id" :value="m.id">{{ m.id }} - {{ m.nombre }}</option>
         </select>
         <select v-model="fTipoTicket" class="input">
           <option value="">— Tipo de ticket —</option>
-          <option v-for="t in tiposTicket" :key="t">{{ t }}</option>
+          <option v-for="t in tiposTicket" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
         </select>
       </div>
 
@@ -76,8 +76,8 @@
             </thead>
             <tbody>
               <tr v-for="m in correos" :key="m.id">
-                <td>{{ fmt(m.receivedAt) }}</td>
-                <td class="ellipsis" :title="m.from">{{ m.from }}</td>
+                <td>{{ m.receivedAt }}</td>
+                <td class="ellipsis" :title="m.from">{{ m.from_name }}</td>
                 <td class="ellipsis">
                   <button class="link" @click="openMail(m)" :title="m.subject">{{ m.subject }}</button>
                 </td>
@@ -105,7 +105,7 @@
             <thead>
               <tr>
                 <th>Estado del Ticket</th>
-                <th>ID</th>
+                <th>Ticket ID</th>
                 <th>Fecha de Solicitud</th>
                 <th>Fecha de Vencimiento</th>
                 <th>Tipo de Soporte</th>
@@ -119,14 +119,14 @@
             <tbody>
               <tr v-for="t in filtered" :key="t.id" @click="openTicket(t)">
                 <td><span class="tag" :class="mapEstado(t.estadoTicket)">{{ t.estadoTicket }}</span></td>
-                <td><span class="pill">{{ t.id }}</span></td>
-                <td>{{ fmt(t.creadoEn) }}</td>
-                <td>{{ t.vencimiento ? fmt(t.vencimiento) : '—' }}</td>
-                <td>{{ t.tipoSoporte || '—' }}</td>
-                <td class="ellipsis" :title="t.titulo">{{ t.titulo }}</td>
-                <td class="ellipsis" :title="t.solicitante">{{ t.solicitante }}</td>
-                <td>{{ t.macroproceso || '—' }}</td>
-                <td>{{ t.asignadoA || 'Sin asignar' }}</td>
+                <td><span class="pill">{{ t.ticket_id }}</span></td>
+                <td>{{ t.created_at }}</td>
+                <td>{{ t.fecha_vencimiento ? t.fecha_vencimiento : '—' }}</td>
+                <td>{{ t.tipo_soporte_nombre || '—' }}</td>
+                <td class="ellipsis" :title="t.subject">{{ t.subject }}</td>
+                <td class="ellipsis" :title="t.from_name">{{ t.from_name }}</td>
+                <td>{{ t.macroproceso_nombre || '—' }}</td>
+                <td>{{ t.asignadoNombre || t.asignadoNombre || 'Sin asignar' }}</td>
                 <td>
                   <button class="button sm ghost" @click.stop="openTicket(t)">Editar</button>
                 </td>
@@ -160,11 +160,11 @@
           <div class="grid2">
             <label>
               <span>Título</span>
-              <input v-model.trim="form.titulo" class="input" />
+              <p><strong>{{ form.titulo }}</strong></p>
             </label>
             <label>
               <span>Solicitante</span>
-              <input v-model.trim="form.solicitante" class="input" />
+              <p><strong>{{ form.solicitante }}</strong></p>
             </label>
 
             <label class="span2">
@@ -175,28 +175,31 @@
             <label>
               <span>Prioridad</span>
               <select v-model="form.prioridad" class="input">
-                <option v-for="p in prioridades" :key="p">{{ p }}</option>
+                <option value="">-- Seleccionar prioridad --</option>
+                <option v-for="p in prioridades" :key="p.id" :value="p.id">{{ p.id }} - {{ p.nombre }}</option>
               </select>
             </label>
 
             <label>
               <span>Estado</span>
-              <select v-model="form.estadoTicket" class="input">
-                <option v-for="e in estados" :key="e">{{ e }}</option>
+              <select v-model="form.estado" class="input">
+                <option v-for="e in estados" :key="e.id" :value="e.id">{{ e.id }} - {{ e.nombre }}</option>
               </select>
             </label>
 
             <label>
               <span>Tipo de Soporte</span>
               <select v-model="form.tipoSoporte" class="input">
-                <option v-for="t in tiposSoporte" :key="t">{{ t }}</option>
+                <option value="">-- Seleccionar tipo de soporte --</option>
+                <option v-for="t in tiposSoporte" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
               </select>
             </label>
 
             <label>
               <span>Tipo de ticket</span>
               <select v-model="form.tipoTicket" class="input">
-                <option v-for="t in tiposTicket" :key="t">{{ t }}</option>
+                <option value="">-- Seleccionar tipo de ticket --</option>
+                <option v-for="t in tiposTicket" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
               </select>
             </label>
 
@@ -204,7 +207,7 @@
               <span>Macroproceso</span>
               <select v-model="form.macroproceso" class="input">
                 <option value="">—</option>
-                <option v-for="m in macros" :key="m">{{ m }}</option>
+                <option v-for="m in macroprocesos" :key="m.id" :value="m.id">{{ m.nombre }}</option>
               </select>
             </label>
 
@@ -212,13 +215,13 @@
               <span>Asignado a</span>
               <select v-model="form.asignadoA" class="input">
                 <option value="">Sin asignar</option>
-                <option v-for="p in asignados" :key="p">{{ p }}</option>
+                <option v-for="t in tecnicos" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
             </label>
 
             <label>
               <span>Vencimiento</span>
-              <input type="datetime-local" v-model="form.vencimiento" class="input" />
+              <input type="date" v-model="form.vencimiento" class="input" />
             </label>
 
             <label>
@@ -227,19 +230,13 @@
             </label>
 
             <div class="span2">
-              <div class="reply-head">
-                <select v-model="reply.tipo" class="input sm">
-                  <option value="public">Respuesta pública</option>
-                  <option value="private">Nota interna</option>
-                </select>
-              </div>
               <textarea v-model="reply.texto" class="input area" rows="4" placeholder="Escribe tu respuesta…"></textarea>
             </div>
           </div>
         </div>
 
         <div class="sheet-foot">
-          <div class="left"><span class="muted" v-if="modal.mode==='edit'">Última act.: {{ fmt(form.actualizadoEn) }}</span></div>
+          <div class="left"><span class="muted" v-if="modal.mode==='edit'">Última act.: {{ form.updated_at }}</span></div>
           <div class="right">
             <button class="button ghost" @click="closeModal">Cancelar</button>
             <button class="button primary" @click="save">{{ modal.mode==='create' ? 'Crear' : 'Guardar' }}</button>
@@ -258,8 +255,8 @@
         </div>
         <div class="sheet-body">
           <div class="mail-meta">
-            <div><strong>De:</strong> {{ mail.item?.from || 'Sin remitente' }}</div>
-            <div><strong>Fecha:</strong> {{ fmt(mail.item?.receivedAt) }}</div>
+            <div><strong>De:</strong> {{ mail.item?.from_email || 'Sin remitente' }}</div>
+            <div><strong>Fecha:</strong> {{ mail.item?.receivedAt }}</div>
             <!-- <div v-if="mail.item?.estado"><strong>Estado:</strong> 
               <span class="tag" :class="mail.item.estado === 'nuevo' ? 'chip-blue' : 'chip-gray'">{{ mail.item.estado }}</span>
             </div> -->
@@ -406,47 +403,126 @@ const router = useRouter();
 const { state } = useTickets()
 
 const correos = ref([]);
+const ticketsCorreos = ref([]); // Correos convertidos en tickets
 const token = ref('');
 const attachmentsCache = ref(new Map()); // Cache para attachments
 const mailBodyRef = ref(null); // Referencia al contenedor del mail body
 const currentAttachments = ref([]); // Attachments del correo actual
 
 // Catálogos
-const estados = ['Abierto','En Proceso','En Espera','Completado','Cerrado']
-const prioridades = ['Baja','Media','Alta']
-const tiposSoporte = state.tiposSoporte ?? ['Software','Hardware','Redes','Servidores']
-const macros = state.macros ?? ['Ventas','TI','Operaciones','Finanzas']
-const tiposTicket = state.tiposTicket ?? ['Gestión','Estratégico']
+const estados = ref([]);
+const tecnicos = ref([]);
+const prioridades = ref([]);
+const tiposSoporte = ref([]);
+const tiposTicket = ref([]);
+const macroprocesos = ref([]);
 
 const asignados = computed(()=>{
-  const a = new Set()
-  state.tickets.forEach(t=> t.asignadoA && a.add(t.asignadoA))
-  ;['Jeyson','Víctor','Heyder'].forEach(n=>a.add(n))
-  return [...a]
+  const nombres = new Set()
+  // Usar técnicos cargados dinámicamente de la BD
+  tecnicos.value.forEach(t => nombres.add(t.nombre))
+  // Fallback técnicos por defecto si no hay técnicos cargados
+  if (nombres.size === 0) {
+    ;['Jeyson','Víctor','Heyder'].forEach(n => nombres.add(n))
+  }
+  return [...nombres]
 })
-
 // BANDEJA (mock)
 const inbox = ref([])
-onMounted(()=>{
-  // try{ const raw=localStorage.getItem('inbox_m365'); if(raw) inbox.value=JSON.parse(raw) }catch{}
-  syncM365();
+onMounted(async ()=>{
+  // Cargar catálogos dinámicos primero
+  await cargarEstadosTickets();
+  await cargarTecnicosGestionTic();
+  
+  // Sincronizar correos para la bandeja
+  await syncM365();
+  
+  // Cargar contadores de tickets para las vistas
+  await actualizarContadores();
+
+  await obtenerPrioridades();
+  await obtenerTipoSoporte();
+  await obtenerTipoTicket();
+  await obtenerMacroprocesos();
 })
 watch(inbox, v=> localStorage.setItem('inbox_m365', JSON.stringify(v)), { deep:true })
 
-// function syncM365(){
-//   const seed = [
-//     { id:'m'+Date.now()+'a', subject:'Solicitud cuenta VPN nuevo ingreso', from:'RRHH <rrhh@avantika.com.co>', receivedAt:new Date(Date.now()-3600_000).toISOString(), preview:'Por favor crear usuario VPN para Ana M. área de compras.', body:'Buenas,\n\nSolicito creación de usuario VPN para Ana M. (Compras).\n\nGracias.' },
-//     { id:'m'+Date.now()+'b', subject:'Backup ERP falló anoche [servicios]', from:'Sistemas <sistemas@avantika.com.co>', receivedAt:new Date(Date.now()-2*3600_000).toISOString(), preview:'El job de SQL Agent terminó con código 1. Se requiere revisión.', body:'Hola,\n\nEl job de SQL Agent terminó con código 1. Favor revisar el servidor y logs.\n\n-- Sistemas' },
-//     { id:'m'+Date.now()+'c', subject:'TELÉFONO NO FUNCIONA', from:'Brayan Pérez <brayan@avantika.com.co>', receivedAt:new Date(Date.now()-5*3600_000).toISOString(), preview:'Buenas tardes, mi teléfono de escritorio no funciona. ¿Me ayudan por favor?', body:'Buenas tardes,\n\nMi teléfono de escritorio no funciona. ¿Me pueden ayudar por favor?\n\nGracias,\nBrayan' },
-//   ]
-//   seed.forEach(m=>{
-//     if(!inbox.value.find(x=>x.id===m.id)){
-//       Object.assign(m,{ tipoTicket:'Gestión', tipoSoporte:'', macroproceso:'', prioridad:'Media', asignadoA:'' })
-//       inbox.value.unshift(m)
-//     }
-//   })
-//   alert('Bandeja sincronizada (demo).')
-// }
+const obtenerPrioridades = async () => {
+  try {
+    const response = await axios.post(
+        `${apiUrl}/obtener_prioridades`, {},
+        {
+            headers: {
+                Accept: "application/json",
+            }
+        }
+    );
+    if (response.status === 200) {
+        prioridades.value = response.data.data || [];
+    }
+  } catch (error) {
+    console.error('Error al obtener correos:', error);
+  } 
+};
+
+const obtenerTipoSoporte = async () => {
+  try {
+    const response = await axios.post(
+        `${apiUrl}/obtener_tipo_soporte`, {},
+        {
+            headers: {
+                Accept: "application/json",
+            }
+        }
+    );
+    if (response.status === 200) {
+        tiposSoporte.value = response.data.data || [];
+    }
+  } catch (error) {
+    console.error('Error al obtener tipos de soporte:', error);
+  } 
+};
+
+const obtenerTipoTicket = async () => {
+  try {
+    const response = await axios.post(
+        `${apiUrl}/obtener_tipo_ticket`, {},
+        {
+            headers: {
+                Accept: "application/json",
+            }
+        }
+    );
+    if (response.status === 200) {
+        tiposTicket.value = response.data.data || [];
+    }
+  } catch (error) {
+    console.error('Error al obtener tipos de ticket:', error);
+    // Fallback a tipos por defecto si falla la carga
+    tiposTicket.value = [
+      {id: 1, nombre: 'Gestión'},
+      {id: 2, nombre: 'Estratégico'}
+    ];
+  } 
+};
+
+const obtenerMacroprocesos = async () => {
+  try {
+    const response = await axios.post(
+        `${apiUrl}/obtener_macroprocesos`, {},
+        {
+            headers: {
+                Accept: "application/json",
+            }
+        }
+    );
+    if (response.status === 200) {
+        macroprocesos.value = response.data.data || [];
+    }
+  } catch (error) {
+    console.error('Error al obtener macroprocesos:', error);
+  } 
+};
 
 const syncM365 = async () => {
   try {
@@ -470,6 +546,122 @@ const syncM365 = async () => {
   } finally {
     loading.value = false;
     loading_msg.value = '';
+  }
+}
+
+// Función para cargar tickets desde correos con vista específica
+const cargarTicketsCorreos = async (vistaSeleccionada = 'todos') => {
+  try {
+    loading.value = true;
+    loading_msg.value = `Cargando ${vistaSeleccionada}...`;
+
+    const response = await axios.post(
+      `${apiUrl}/obtener_tickets_correos`,
+      { 
+        vista: vistaSeleccionada,
+        limite: 100,
+        offset: 0
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      const data = response.data.data;
+      ticketsCorreos.value = data.tickets || [];
+      
+      // Actualizar contadores para todas las vistas de una vez
+      await actualizarContadores();
+    }
+  } catch (error) {
+    console.error('Error al cargar tickets de correos:', error);
+  } finally {
+    loading.value = false;
+    loading_msg.value = '';
+  }
+}
+
+// Función para actualizar contadores de todas las vistas de manera eficiente
+const actualizarContadores = async () => {
+  try {
+    const vistasActualizar = ['todos', 'sin', 'abiertos', 'proceso', 'comp'];
+    
+    // Hacer peticiones en paralelo para eficiencia
+    const promesas = vistasActualizar.map(async (vistaKey) => {
+      const response = await axios.post(
+        `${apiUrl}/obtener_tickets_correos`,
+        { 
+          vista: vistaKey,
+          limite: 1, // Solo necesitamos el conteo
+          offset: 0
+        },
+        {
+          headers: {
+            Accept: "application/json",
+          }
+        }
+      );
+      
+      if (response.status === 200) {
+        return { vista: vistaKey, total: response.data.data.total };
+      }
+      return { vista: vistaKey, total: 0 };
+    });
+    
+    const resultados = await Promise.all(promesas);
+    
+    // Actualizar contadores
+    resultados.forEach(({ vista, total }) => {
+      vistasCounts.value[vista] = total;
+    });
+    
+  } catch (error) {
+    console.error('Error actualizando contadores:', error);
+  }
+}
+
+// Función para cargar estados de tickets desde el backend
+const cargarEstadosTickets = async () => {
+  try {
+    const response = await axios.get(
+      `${apiUrl}/obtener_estados_tickets`,
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      estados.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error al cargar estados de tickets:', error);
+    // Fallback a estados por defecto si falla la carga
+    estados.value = ['Abierto','En Proceso','En Espera','Completado','Cerrado'];
+  }
+}
+
+// Función para cargar técnicos de gestión TIC desde el backend
+const cargarTecnicosGestionTic = async () => {
+  try {
+    const response = await axios.get(
+      `${apiUrl}/obtener_tecnicos_gestion_tic`,
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      tecnicos.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error al cargar técnicos de gestión TIC:', error);
   }
 }
 
@@ -510,16 +702,17 @@ function promote(m){
     titulo: m.subject || 'Sin asunto',
     solicitante: m.from ? m.from.replace(/<.*?>/g,'').trim() : 'Sin remitente',
     descripcion: m.body || m.preview || 'Sin descripción',
-    prioridad: m.prioridad || 'Media',
-    estadoTicket: 'Abierto',
+    prioridad: m.prioridad || '',
+    estado: m.estado || '',
+    estadoTicket: '',
     tipoSoporte: m.tipoSoporte || '',
-    tipoTicket: m.tipoTicket || 'Gestión',
+    tipoTicket: m.tipoTicket || '',
     macroproceso: m.macroproceso || '',
     asignadoA: m.asignadoA || '',
     creadoEn: m.receivedAt || new Date().toISOString(),
     actualizadoEn: new Date().toISOString(),
     vencimiento: '',
-    slaHoras: 24
+    slaHoras: ''
   }
   state.tickets.unshift(t)
   correos.value = correos.value.filter(x=> x.id!==m.id)
@@ -547,9 +740,7 @@ async function convertToTicket(m) {
     if (response.status === 200) {
       // Crear el ticket localmente usando la función promote existente
       promote(m);
-      console.log('Correo convertido a ticket exitosamente:', response.data.message);
     } else {
-      console.error('Error convirtiendo correo a ticket:', response.data.message);
       alert('Error al convertir el correo a ticket. Inténtalo de nuevo.');
     }
   } catch (error) {
@@ -583,7 +774,6 @@ async function discard(m) {
     if (response.status === 200) {
       // Remover el correo de la lista local solo si el backend confirma el descarte
       correos.value = correos.value.filter(x => x.id !== m.id);
-      console.log('Correo descartado exitosamente:', response.data.message);
     } else {
       console.error('Error descartando correo:', response.data.message);
       alert('Error al descartar el correo. Inténtalo de nuevo.');
@@ -682,32 +872,40 @@ const fEstado = ref(''); const fPrioridad = ref('')
 const fAsignado = ref(''); const fTipoSoporte = ref('')
 const fMacro = ref(''); const fTipoTicket = ref('')
 
-// Vistas
+// Vistas con contadores dinámicos
 const vista = ref('inbox') // arrancamos en Bandeja
+const vistasCounts = ref({
+  todos: 0,
+  sin: 0,
+  abiertos: 0,
+  proceso: 0,
+  comp: 0
+})
+
 const vistas = computed(()=>[
-  { key:'todos', label:'Todos', count: list=> list.length },
-  { key:'sin', label:'Sin asignar', count: list=> list.filter(t=>!t.asignadoA).length },
-  { key:'abiertos', label:'Abiertos', count: list=> list.filter(t=>t.estadoTicket==='Abierto').length },
-  { key:'proceso', label:'En Proceso', count: list=> list.filter(t=>t.estadoTicket==='En Proceso').length },
-  { key:'espera', label:'En Espera', count: list=> list.filter(t=>t.estadoTicket==='En Espera').length },
-  { key:'comp', label:'Completado', count: list=> list.filter(t=>t.estadoTicket==='Completado').length },
-  { key:'cerr', label:'Cerrados', count: list=> list.filter(t=>t.estadoTicket==='Cerrado').length },
-  { key:'j', label:'Tickets – Jeyson', count: list=> list.filter(t=>t.asignadoA==='Jeyson').length },
-  { key:'v', label:'Tickets – Víctor', count: list=> list.filter(t=>t.asignadoA==='Víctor').length },
-  { key:'h', label:'Tickets – Heyder', count: list=> list.filter(t=>t.asignadoA==='Heyder').length },
+  { key:'todos', label:'Todos', count: () => vistasCounts.value.todos },
+  { key:'sin', label:'Sin asignar', count: () => vistasCounts.value.sin },
+  { key:'abiertos', label:'Abiertos', count: () => vistasCounts.value.abiertos },
+  { key:'proceso', label:'En Proceso', count: () => vistasCounts.value.proceso },
+  { key:'comp', label:'Completado', count: () => vistasCounts.value.comp },
+  // Dejamos estas para más tarde como mencionaste
+  { key:'j', label:'Tickets – Jeyson', count: () => 0 },
+  { key:'v', label:'Tickets – Víctor', count: () => 0 },
+  { key:'h', label:'Tickets – Heyder', count: () => 0 },
 ])
 
 const filteredBase = computed(()=>{
+  // Si estamos en la bandeja, usar correos normales
+  if (vista.value === 'inbox') {
+    return [];
+  }
+  
+  // Para las otras vistas, usar tickets desde correos (ya filtrados por backend)
   const text = q.value.trim().toLowerCase()
-  return state.tickets.filter(t=>{
-    if(fEstado.value && t.estadoTicket!==fEstado.value) return false
-    if(fPrioridad.value && t.prioridad!==fPrioridad.value) return false
-    if(fAsignado.value && (t.asignadoA||'')!==fAsignado.value) return false
-    if(fTipoSoporte.value && (t.tipoSoporte||'')!==fTipoSoporte.value) return false
-    if(fMacro.value && (t.macroproceso||'')!==fMacro.value) return false
-    if(fTipoTicket.value && (t.tipoTicket||'')!==fTipoTicket.value) return false
+  return ticketsCorreos.value.filter(t=>{
+    // Filtros adicionales de frontend (búsqueda de texto, etc.)
     if(!text) return true
-    const blob = `${t.id} ${t.titulo} ${t.descripcion||''} ${t.solicitante||''}`.toLowerCase()
+    const blob = `${t.id} ${t.subject || t.titulo} ${t.body || t.descripcion||''} ${t.from || t.solicitante||''}`.toLowerCase()
     return blob.includes(text)
   })
 })
@@ -719,23 +917,25 @@ const pages = ref(1)
 
 const filtered = computed(()=>{
   let list = filteredBase.value
-  switch(vista.value){
-    case 'sin': list=list.filter(t=>!t.asignadoA); break
-    case 'abiertos': list=list.filter(t=>t.estadoTicket==='Abierto'); break
-    case 'proceso': list=list.filter(t=>t.estadoTicket==='En Proceso'); break
-    case 'espera': list=list.filter(t=>t.estadoTicket==='En Espera'); break
-    case 'comp': list=list.filter(t=>t.estadoTicket==='Completado'); break
-    case 'cerr': list=list.filter(t=>t.estadoTicket==='Cerrado'); break
-    case 'j': list=list.filter(t=>t.asignadoA==='Jeyson'); break
-    case 'v': list=list.filter(t=>t.asignadoA==='Víctor'); break
-    case 'h': list=list.filter(t=>t.asignadoA==='Heyder'); break
-  }
+  
+  // Ya no necesitamos filtrar aquí porque el backend lo hace de manera optimizada
+  // Solo aplicamos paginación
   pages.value = Math.max(1, Math.ceil(list.length / pageSize))
   const start = (page.value-1)*pageSize
   return list.slice(start, start+pageSize)
 })
 
-watch([filteredBase, vista], ()=>{ page.value=1 })
+// Watcher para cambios de vista - cargar datos específicos
+watch(vista, async (nuevaVista, vistaAnterior) => {
+  page.value = 1;
+  
+  // Si cambiamos de vista a una que no sea inbox, cargar tickets correspondientes
+  if (nuevaVista !== 'inbox') {
+    await cargarTicketsCorreos(nuevaVista);
+  }
+})
+
+watch([filteredBase], ()=>{ page.value=1 })
 
 // Modal Ticket
 const modal = ref({ open:false, mode:'edit' })
@@ -745,6 +945,63 @@ const reply = ref({ tipo:'public', texto:'' })
 function openTicket(t){
   modal.value = { open:true, mode:'edit' }
   form.value = { ...t }
+
+  // Mapear campos con nombres diferentes entre backend y frontend
+  form.value.titulo = t.subject || t.titulo || '';
+  form.value.solicitante = t.from_name || t.solicitante || '';
+  
+  // Limpiar HTML de la descripción
+  const rawDescription = t.body || '';
+  form.value.descripcion = cleanHtmlForTextarea(rawDescription);
+  
+  // Asegurar que los valores estén correctamente seteados para los selects
+  if (t.prioridad && typeof t.prioridad === 'object') {
+    form.value.prioridad = t.prioridad.id || t.prioridad;
+  } else if (t.prioridad) {
+    form.value.prioridad = t.prioridad;
+  }
+  
+  // Mapear tipo_soporte (backend) a tipoSoporte (frontend)
+  const tipoSoporteValue = t.tipo_soporte || t.tipoSoporte;
+  if (tipoSoporteValue && typeof tipoSoporteValue === 'object') {
+    form.value.tipoSoporte = tipoSoporteValue.id || tipoSoporteValue;
+  } else if (tipoSoporteValue) {
+    form.value.tipoSoporte = tipoSoporteValue;
+  }
+  
+  // Mapear tipo_ticket (backend) a tipoTicket (frontend)  
+  const tipoTicketValue = t.tipo_ticket || t.tipoTicket;
+  if (tipoTicketValue && typeof tipoTicketValue === 'object') {
+    form.value.tipoTicket = tipoTicketValue.id || tipoTicketValue;
+  } else if (tipoTicketValue) {
+    form.value.tipoTicket = tipoTicketValue;
+  }
+  
+  // Mapear asignado (backend) a asignadoA (frontend)
+  const asignadoValue = t.asignado || t.asignadoA;
+  if (asignadoValue && typeof asignadoValue === 'object') {
+    form.value.asignadoA = asignadoValue.id || asignadoValue;
+  } else if (asignadoValue) {
+    form.value.asignadoA = asignadoValue;
+  }
+  
+  // Mapear macroproceso
+  const macroprocesoValue = t.macroproceso;
+  if (macroprocesoValue && typeof macroprocesoValue === 'object') {
+    form.value.macroproceso = macroprocesoValue.id || macroprocesoValue;
+  } else if (macroprocesoValue) {
+    form.value.macroproceso = macroprocesoValue;
+  }
+  
+  // Mapear estado
+  form.value.estado = t.estado || '';
+  
+  // Mapear fecha_vencimiento
+  form.value.vencimiento = t.fecha_vencimiento || t.vencimiento || '';
+  
+  // Mapear sla
+  form.value.slaHoras = t.sla || '';
+  
   reply.value = { tipo:'public', texto:'' }
   lockScroll(true)
   nextTick(()=> focusModal())
@@ -753,12 +1010,12 @@ function openNew(){
   modal.value = { open:true, mode:'create' }
   form.value = {
     id: genId(), titulo:'', solicitante:'', descripcion:'',
-    prioridad:'Media', estadoTicket:'Abierto',
-    tipoSoporte: tiposSoporte[0], tipoTicket: tiposTicket[0],
+    prioridad:'', estadoTicket:'',
+    tipoSoporte:'', tipoTicket:'',
     macroproceso:'', asignadoA:'',
     creadoEn:new Date().toISOString(),
     actualizadoEn:new Date().toISOString(),
-    vencimiento:'', slaHoras:24
+    vencimiento:'', slaHoras: ''
   }
   reply.value = { tipo:'public', texto:'' }
   lockScroll(true)
@@ -784,9 +1041,7 @@ function refresh(){}
 function mapEstado(e){
   if(e==='Abierto') return 'chip-gray'
   if(e==='En Proceso') return 'chip-blue'
-  if(e==='En Espera') return 'chip-yellow'
   if(e==='Completado') return 'chip-green'
-  if(e==='Cerrado') return 'chip-dark'
   return ''
 }
 
@@ -1106,6 +1361,40 @@ async function downloadAttachment(attachment) {
     alert('Error al descargar el archivo. Por favor, inténtalo de nuevo.')
   }
 }
+
+// Función para limpiar HTML y convertir a texto plano para textarea
+function cleanHtmlForTextarea(htmlContent) {
+  if (!htmlContent) return '';
+  
+  // Crear un elemento temporal para procesar el HTML
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = htmlContent;
+  
+  // Reemplazar algunos elementos HTML comunes con equivalentes de texto
+  const brElements = tempDiv.querySelectorAll('br');
+  brElements.forEach(br => br.replaceWith('\n'));
+  
+  const pElements = tempDiv.querySelectorAll('p');
+  pElements.forEach(p => {
+    p.replaceWith(p.textContent + '\n\n');
+  });
+  
+  const divElements = tempDiv.querySelectorAll('div');
+  divElements.forEach(div => {
+    div.replaceWith(div.textContent + '\n');
+  });
+  
+  // Obtener solo el texto plano
+  let cleanText = tempDiv.textContent || tempDiv.innerText || '';
+  
+  // Limpiar espacios múltiples y saltos de línea excesivos
+  cleanText = cleanText
+    .replace(/\s+/g, ' ')           // Múltiples espacios a uno solo
+    .replace(/\n\s*\n\s*\n/g, '\n\n') // Múltiples saltos de línea a máximo dos
+    .trim();                        // Eliminar espacios al inicio y final
+  
+  return cleanText;
+}
 </script>
 
 <style>
@@ -1395,7 +1684,7 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
     width: 100%;
     height: 100%;
     border: 4px solid rgba(255, 255, 255, 0.2);
-    border-top: 4px solid #0ea5e9;
+    border-top: 4px solid #17c1a4;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
