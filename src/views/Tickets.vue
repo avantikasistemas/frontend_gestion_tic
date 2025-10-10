@@ -3,14 +3,14 @@
     <!-- Toolbar / Filtros (se ocultan en vista Bandeja) -->
     <div class="toolbar" :class="{ 'toolbar--inbox': vista==='inbox' }">
       <div class="filters" v-show="vista!=='inbox'">
-        <input v-model="q" class="input search" placeholder="ID, asunto/título, descripción, solicitante…" />
+        <input v-model="q" class="input search" placeholder="ID, asunto, solicitante, email…" />
         <select v-model="fEstado" class="input">
           <option value="">— Estado —</option>
           <option v-for="e in estados" :key="e.id" :value="e.id">{{ e.id }} - {{ e.nombre }}</option>
         </select>
         <select v-model="fAsignado" class="input">
           <option value="">— Asignado a —</option>
-          <option v-for="p in asignados" :key="p" :value="p">{{ p }}</option>
+          <option v-for="t in tecnicos" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
         <select v-model="fTipoSoporte" class="input">
           <option value="">— Tipo de Soporte —</option>
@@ -28,6 +28,14 @@
 
       <div class="actions">
         <button class="button" @click="syncM365">Sincronizar Microsoft 365</button>
+        <button 
+          class="button ghost" 
+          @click="clearAllFilters" 
+          v-show="vista!=='inbox'" 
+          title="Limpiar todos los filtros"
+        >
+          🗑️ Limpiar Filtros
+        </button>
         <button class="button primary" @click="openNew" v-show="vista!=='inbox'">+ Nuevo Ticket</button>
       </div>
     </div>
@@ -97,6 +105,13 @@
 
         <!-- Tabla de Tickets -->
         <template v-else>
+          <!-- Indicador de resultados -->
+          <div class="results-summary" v-if="ticketsCorreos.length > 0">
+            <span class="results-text">
+              Mostrando {{ ticketsCorreos.length }} ticket(s)
+            </span>
+          </div>
+          
           <table class="table">
             <thead>
               <tr>
@@ -607,18 +622,34 @@ const syncM365 = async () => {
 }
 
 // Función para cargar tickets desde correos con vista específica
-const cargarTicketsCorreos = async (vistaSeleccionada = 'todos') => {
+// Función para cargar tickets usando filtrado por backend
+const cargarTicketsCorreos = async (vistaSeleccionada = 'todos', aplicarFiltros = false) => {
   try {
     loading.value = true;
     loading_msg.value = `Cargando ${vistaSeleccionada}...`;
 
+    // Preparar parámetros para el backend
+    const parametros = {
+      vista: vistaSeleccionada,
+      limite: 100,
+      offset: 0
+    };
+
+    // Si aplicarFiltros es true, incluir los filtros activos
+    if (aplicarFiltros) {
+      if (q.value && q.value.trim()) parametros.q = q.value.trim();
+      if (fEstado.value) parametros.fEstado = fEstado.value;
+      if (fAsignado.value) parametros.fAsignado = fAsignado.value;
+      if (fTipoSoporte.value) parametros.fTipoSoporte = fTipoSoporte.value;
+      if (fMacro.value) parametros.fMacro = fMacro.value;
+      if (fTipoTicket.value) parametros.fTipoTicket = fTipoTicket.value;
+    }
+
+    console.log('🔍 Parámetros enviados al backend:', parametros);
+
     const response = await axios.post(
-      `${apiUrl}/obtener_tickets_correos`,
-      { 
-        vista: vistaSeleccionada,
-        limite: 100,
-        offset: 0
-      },
+      `${apiUrl}/filtrar_tickets`,
+      parametros,
       {
         headers: {
           Accept: "application/json",
@@ -630,8 +661,12 @@ const cargarTicketsCorreos = async (vistaSeleccionada = 'todos') => {
       const data = response.data.data;
       ticketsCorreos.value = data.tickets || [];
       
-      // Actualizar contadores para todas las vistas de una vez
-      await actualizarContadores();
+      console.log(`✅ Tickets cargados: ${ticketsCorreos.value.length}/${data.total || 0}`);
+      
+      // Solo actualizar contadores si no estamos aplicando filtros específicos
+      if (!aplicarFiltros) {
+        await actualizarContadores();
+      }
     }
   } catch (error) {
     console.error('Error al cargar tickets de correos:', error);
@@ -983,14 +1018,9 @@ const filteredBase = computed(()=>{
     return [];
   }
   
-  // Para las otras vistas, usar tickets desde correos (ya filtrados por backend)
-  const text = q.value.trim().toLowerCase()
-  return ticketsCorreos.value.filter(t=>{
-    // Filtros adicionales de frontend (búsqueda de texto, etc.)
-    if(!text) return true
-    const blob = `${t.id} ${t.subject || t.titulo} ${t.body || t.descripcion||''} ${t.from || t.solicitante||''}`.toLowerCase()
-    return blob.includes(text)
-  })
+  // Ahora el filtrado se hace por backend - solo devolvemos los tickets cargados
+  // El filtrado pesado ya no se hace en frontend para mejor rendimiento
+  return ticketsCorreos.value;
 })
 
 // Vista seleccionada y paginación
@@ -1014,7 +1044,31 @@ watch(vista, async (nuevaVista, vistaAnterior) => {
   
   // Si cambiamos de vista a una que no sea inbox, cargar tickets correspondientes
   if (nuevaVista !== 'inbox') {
-    await cargarTicketsCorreos(nuevaVista);
+    await cargarTicketsCorreos(nuevaVista, false); // false = no aplicar filtros adicionales
+  }
+})
+
+// Debounce para búsqueda de texto
+let searchTimeout = null;
+const debouncedSearch = (newValue, oldValue) => {
+  if (searchTimeout) clearTimeout(searchTimeout);
+  
+  searchTimeout = setTimeout(async () => {
+    if (vista.value !== 'inbox') {
+      await cargarTicketsCorreos(vista.value, true); // true = aplicar filtros
+    }
+  }, 500); // 500ms de debounce
+};
+
+// Watcher para filtro de búsqueda de texto (con debounce)
+watch(q, debouncedSearch)
+
+// Watchers para filtros de select (respuesta inmediata)
+watch([fEstado, fAsignado, fTipoSoporte, fMacro, fTipoTicket], async () => {
+  page.value = 1;
+  
+  if (vista.value !== 'inbox') {
+    await cargarTicketsCorreos(vista.value, true); // true = aplicar filtros
   }
 })
 
@@ -1156,6 +1210,21 @@ function save(){
 function genId(){ const n=(state.tickets.length+1).toString().padStart(4,'0'); return `TCK-${n}` }
 function fmt(iso){ try{ return new Date(iso).toLocaleString() }catch{ return '—' } }
 function refresh(){}
+
+// Función para limpiar todos los filtros
+async function clearAllFilters() {
+  q.value = '';
+  fEstado.value = '';
+  fAsignado.value = '';
+  fTipoSoporte.value = '';
+  fMacro.value = '';
+  fTipoTicket.value = '';
+  
+  // Recargar vista base sin filtros
+  if (vista.value !== 'inbox') {
+    await cargarTicketsCorreos(vista.value, false);
+  }
+}
 
 function mapEstado(e){
   if(e==='Abierto') return 'chip-gray'
@@ -1747,6 +1816,21 @@ function cleanHtmlForTicketModal(htmlContent) {
 .button.primary{ background:#0ea5e9; color:#fff; border-color:#0ea5e9 }
 .button.sm{ padding:6px 10px; border-radius:10px; font-size:.9rem }
 .button.ghost{ background:#f8fafc }
+
+/* Indicador de resultados */
+.results-summary {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.results-text {
+  font-weight: 500;
+}
 
 @media (max-width: 900px){
   .filters{ flex-wrap: wrap }
