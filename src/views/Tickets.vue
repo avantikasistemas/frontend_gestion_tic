@@ -211,60 +211,76 @@
             </label>
 
             <label>
-              <span>Prioridad</span>
-              <select v-model="form.prioridad" class="input">
+              <span>Prioridad 
+                <span v-if="guardandoCampo === 'prioridad'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.prioridad" class="input" :class="{ 'saving': guardandoCampo === 'prioridad' }">
                 <option value="">-- Seleccionar prioridad --</option>
                 <option v-for="p in prioridades" :key="p.id" :value="p.id">{{ p.id }} - {{ p.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Estado</span>
-              <select v-model="form.estado" class="input">
+              <span>Estado
+                <span v-if="guardandoCampo === 'estado'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.estado" class="input" :class="{ 'saving': guardandoCampo === 'estado' }">
                 <option v-for="e in estados" :key="e.id" :value="e.id">{{ e.id }} - {{ e.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Tipo de Soporte</span>
-              <select v-model="form.tipoSoporte" class="input">
+              <span>Tipo de Soporte
+                <span v-if="guardandoCampo === 'tipoSoporte'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.tipoSoporte" class="input" :class="{ 'saving': guardandoCampo === 'tipoSoporte' }">
                 <option value="">-- Seleccionar tipo de soporte --</option>
                 <option v-for="t in tiposSoporte" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Tipo de ticket</span>
-              <select v-model="form.tipoTicket" class="input">
+              <span>Tipo de ticket
+                <span v-if="guardandoCampo === 'tipoTicket'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.tipoTicket" class="input" :class="{ 'saving': guardandoCampo === 'tipoTicket' }">
                 <option value="">-- Seleccionar tipo de ticket --</option>
                 <option v-for="t in tiposTicket" :key="t.id" :value="t.id">{{ t.id }} - {{ t.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Macroproceso</span>
-              <select v-model="form.macroproceso" class="input">
+              <span>Macroproceso
+                <span v-if="guardandoCampo === 'macroproceso'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.macroproceso" class="input" :class="{ 'saving': guardandoCampo === 'macroproceso' }">
                 <option value="">—</option>
                 <option v-for="m in macroprocesos" :key="m.id" :value="m.id">{{ m.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Asignado a</span>
-              <select v-model="form.asignadoA" class="input">
+              <span>Asignado a
+                <span v-if="guardandoCampo === 'asignadoA'" class="saving-indicator">💾</span>
+              </span>
+              <select v-model="form.asignadoA" class="input" :class="{ 'saving': guardandoCampo === 'asignadoA' }">
                 <option value="">Sin asignar</option>
                 <option v-for="t in tecnicos" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
             </label>
 
             <label>
-              <span>Vencimiento</span>
-              <input type="date" v-model="form.vencimiento" class="input" />
+              <span>Vencimiento
+                <span v-if="guardandoCampo === 'vencimiento'" class="saving-indicator">💾</span>
+              </span>
+              <input type="date" v-model="form.vencimiento" class="input" :class="{ 'saving': guardandoCampo === 'vencimiento' }" />
             </label>
 
             <label>
-              <span>SLA (horas)</span>
-              <input type="number" min="1" step="1" v-model.number="form.slaHoras" class="input" />
+              <span>SLA (horas)
+                <span v-if="guardandoCampo === 'slaHoras'" class="saving-indicator">💾</span>
+              </span>
+              <input type="number" min="1" step="1" v-model.number="form.slaHoras" class="input" :class="{ 'saving': guardandoCampo === 'slaHoras' }" />
             </label>
 
             <div class="span2">
@@ -1079,6 +1095,55 @@ const modal = ref({ open:false, mode:'edit' })
 const form = ref({})
 const reply = ref({ tipo:'public', texto:'' })
 
+// Watchers para actualización automática de campos del ticket
+watch(() => form.value.prioridad, async (nuevaP, anteriorP) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevaP !== anteriorP && anteriorP !== undefined) {
+    await actualizarCampoTicket('prioridad', nuevaP, 'Prioridad');
+  }
+});
+
+watch(() => form.value.estado, async (nuevoE, anteriorE) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoE !== anteriorE && anteriorE !== undefined) {
+    await actualizarCampoTicket('estado', nuevoE, 'Estado');
+  }
+});
+
+watch(() => form.value.tipoSoporte, async (nuevoTS, anteriorTS) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoTS !== anteriorTS && anteriorTS !== undefined) {
+    await actualizarCampoTicket('tipo_soporte', nuevoTS, 'Tipo de Soporte');
+  }
+});
+
+watch(() => form.value.tipoTicket, async (nuevoTT, anteriorTT) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoTT !== anteriorTT && anteriorTT !== undefined) {
+    await actualizarCampoTicket('tipo_ticket', nuevoTT, 'Tipo de Ticket');
+  }
+});
+
+watch(() => form.value.macroproceso, async (nuevoM, anteriorM) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoM !== anteriorM && anteriorM !== undefined) {
+    await actualizarCampoTicket('macroproceso', nuevoM, 'Macroproceso');
+  }
+});
+
+watch(() => form.value.asignadoA, async (nuevoA, anteriorA) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoA !== anteriorA && anteriorA !== undefined) {
+    await actualizarCampoTicket('asignado', nuevoA, 'Asignado');
+  }
+});
+
+watch(() => form.value.vencimiento, async (nuevoV, anteriorV) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoV !== anteriorV && anteriorV !== undefined) {
+    await actualizarCampoTicket('fecha_vencimiento', nuevoV, 'Fecha de Vencimiento');
+  }
+});
+
+watch(() => form.value.slaHoras, async (nuevoSLA, anteriorSLA) => {
+  if (modal.value.open && modal.value.mode === 'edit' && nuevoSLA !== anteriorSLA && anteriorSLA !== undefined) {
+    await actualizarCampoTicket('sla', nuevoSLA, 'SLA (horas)');
+  }
+});
+
 function openTicket(t){
   modal.value = { open:true, mode:'edit' }
   form.value = { ...t }
@@ -1194,6 +1259,53 @@ function handleImageError() {
   console.error('Error al cargar la imagen en el visor');
   closeImageViewer();
   alert('Error al cargar la imagen');
+}
+
+// Estado para indicador de guardado
+const guardandoCampo = ref('');
+
+// Función para actualizar un campo específico del ticket en la BD
+async function actualizarCampoTicket(campo, valor, mensaje) {
+  if (modal.value.mode !== 'edit' || !form.value.id) return;
+  
+  try {
+    guardandoCampo.value = campo;
+    console.log(`🔄 Actualizando ${campo}:`, valor);
+    
+    const response = await axios.post(
+      `${apiUrl}/actualizar_ticket`,
+      {
+        ticket_id: form.value.id,
+        message_id: form.value.message_id, // Por si necesita el message_id como alternativa
+        campo: campo,
+        valor: valor
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      console.log(`✅ ${mensaje} actualizado correctamente`);
+      
+      // Mostrar indicador de éxito temporal
+      setTimeout(() => {
+        if (guardandoCampo.value === campo) {
+          guardandoCampo.value = '';
+        }
+      }, 1000);
+    }
+  } catch (error) {
+    console.error(`❌ Error actualizando ${campo}:`, error);
+    
+    // Mostrar mensaje de error más específico
+    const mensajeError = error.response?.data?.message || `Error al actualizar ${mensaje.toLowerCase()}`;
+    alert(`${mensajeError}. Inténtalo de nuevo.`);
+    
+    guardandoCampo.value = '';
+  }
 }
 
 function save(){
@@ -2548,5 +2660,29 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
   .image-viewer-footer {
     padding: 10px 16px;
   }
+}
+
+/* ===== Estilos para indicadores de guardado ===== */
+.saving-indicator {
+  font-size: 0.8em;
+  opacity: 0.7;
+  animation: pulse 1.5s ease-in-out infinite alternate;
+  margin-left: 4px;
+}
+
+@keyframes pulse {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+.input.saving {
+  border-color: #0ea5e9 !important;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.1) !important;
+  background-color: rgba(14, 165, 233, 0.02) !important;
+}
+
+.input.saving:focus {
+  border-color: #0ea5e9 !important;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2) !important;
 }
 </style>
