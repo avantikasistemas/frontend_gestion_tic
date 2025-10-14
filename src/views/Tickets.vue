@@ -283,17 +283,90 @@
               <input type="number" min="1" step="1" v-model.number="form.slaHoras" class="input" :class="{ 'saving': guardandoCampo === 'slaHoras' }" />
             </label>
 
-            <div class="span2">
-              <textarea v-model="reply.texto" class="input area" rows="4" placeholder="Escribe tu respuesta…"></textarea>
+            <div class="span2 response-section">
+              <label>
+                <span>Responder al Solicitante</span>
+                <textarea 
+                  v-model="reply.texto" 
+                  class="input area" 
+                  rows="4" 
+                  placeholder="Escribe tu respuesta al solicitante…"
+                  :disabled="enviandoRespuesta"
+                ></textarea>
+              </label>
+              
+              <!-- Botón para ver hilo de conversación -->
+              <div class="conversation-actions" v-if="modal.mode === 'edit' && form.message_id">
+                <button 
+                  class="button sm ghost" 
+                  @click="toggleHiloConversacion"
+                  :disabled="cargandoHilo"
+                >
+                  {{ cargandoHilo ? '🔄 Cargando...' : (mostrarHilo ? '� Ocultar Conversación' : '�💬 Ver Conversación') }}
+                </button>
+              </div>
+              
+              <!-- Sección del hilo de conversación -->
+              <div v-if="mostrarHilo && hiloConversacion.length > 0" class="conversation-thread">
+                <div class="conversation-header">
+                  <h4>💬 Hilo de Conversación ({{ hiloConversacion.length }} mensaje{{ hiloConversacion.length !== 1 ? 's' : '' }})</h4>
+                </div>
+                
+                <div class="messages-container">
+                  <div 
+                    v-for="(mensaje, index) in hiloConversacion" 
+                    :key="mensaje.id"
+                    class="message-item"
+                  >
+                    <div class="message-header">
+                      <div class="sender-info">
+                        <span class="sender-name">{{ mensaje.from_name }}</span>
+                        <span class="sender-email">&lt;{{ mensaje.from_email }}&gt;</span>
+                      </div>
+                      <div class="message-meta">
+                        <span class="message-date">{{ formatDateTime(mensaje.receivedDateTime) }}</span>
+                        <!-- <span v-if="!mensaje.isRead" class="unread-badge">No leído</span> -->
+                      </div>
+                    </div>
+                    
+                    <div class="message-subject" v-if="mensaje.subject">
+                      <strong>{{ mensaje.subject }}</strong>
+                    </div>
+                    
+                    <div class="message-body">
+                      <div v-html="formatEmailBodyForDisplay(mensaje.body, mensaje.id)"></div>
+                      <button 
+                        v-if="mensaje.body && mensaje.body.length > 2000"
+                        @click="toggleMessageExpansion(mensaje.id)"
+                        class="expand-button"
+                      >
+                        {{ expandedMessages.includes(mensaje.id) ? '📖 Ver menos' : '📄 Ver todo' }}
+                      </button>
+                    </div>
+                    
+                    <div v-if="index < hiloConversacion.length - 1" class="message-divider"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="sheet-foot">
-          <div class="left"><span class="muted" v-if="modal.mode==='edit'">Última act.: {{ form.updated_at }}</span></div>
+          <div class="left">
+            <span class="muted" v-if="modal.mode==='edit'">Última act.: {{ form.updated_at }}</span>
+          </div>
           <div class="right">
             <button class="button ghost" @click="closeModal">Cancelar</button>
-            <button class="button primary" @click="save">{{ modal.mode==='create' ? 'Crear' : 'Guardar' }}</button>
+            <button 
+              v-if="modal.mode === 'edit' && reply.texto.trim() && form.message_id" 
+              class="button success" 
+              @click="enviarRespuesta"
+              :disabled="enviandoRespuesta"
+            >
+              {{ enviandoRespuesta ? '📤 Enviando...' : '📤 Enviar Respuesta' }}
+            </button>
+            <!-- <button class="button primary" @click="save">{{ modal.mode==='create' ? 'Crear' : 'Guardar' }}</button> -->
           </div>
         </div>
       </div>
@@ -488,6 +561,13 @@ const mailBodyRef = ref(null); // Referencia al contenedor del mail body
 const currentAttachments = ref([]); // Attachments del correo actual
 const ticketBodyRef = ref(null); // Referencia al contenedor del body del ticket
 const ticketAttachments = ref([]); // Attachments del ticket en edición
+
+// Variables para respuestas y conversaciones
+const enviandoRespuesta = ref(false);
+const cargandoHilo = ref(false);
+const hiloConversacion = ref([]);
+const mostrarHilo = ref(false);
+const expandedMessages = ref([]); // Para controlar qué mensajes están expandidos
 
 // Visor de imágenes
 const imageViewer = ref({
@@ -1270,6 +1350,12 @@ function closeModal(){
   // Limpiar indicador de guardado
   guardandoCampo.value = '';
   
+  // Limpiar datos del hilo de conversación
+  hiloConversacion.value = [];
+  mostrarHilo.value = false;
+  expandedMessages.value = [];
+  reply.value.texto = '';
+  
   lockScroll(false); 
 }
 
@@ -1387,6 +1473,173 @@ function actualizarTicketEnLista(ticketId, campo, valor) {
     }
     
     console.log(`🔄 Vista actualizada para ticket ${ticketId}, campo ${campo}:`, valor);
+  }
+}
+
+// Función para enviar respuesta al correo
+async function enviarRespuesta() {
+  if (!form.value.message_id || !reply.value.texto.trim()) {
+    alert('Se requiere un mensaje para enviar la respuesta.');
+    return;
+  }
+
+  try {
+    enviandoRespuesta.value = true;
+    
+    const response = await axios.post(
+      `${apiUrl}/responder_correo`,
+      {
+        message_id: form.value.message_id,
+        respuesta: reply.value.texto.trim(),
+        ticket_id: form.value.id
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      alert('✅ Respuesta enviada exitosamente al solicitante.');
+      
+      // Limpiar el textarea de respuesta
+      reply.value.texto = '';
+      
+      // Opcionalmente cerrar el modal o actualizar el estado
+      // closeModal();
+    }
+  } catch (error) {
+    console.error('❌ Error enviando respuesta:', error);
+    const errorMsg = error.response?.data?.message || 'Error al enviar la respuesta';
+    alert(`Error: ${errorMsg}`);
+  } finally {
+    enviandoRespuesta.value = false;
+  }
+}
+
+// Función para alternar visualización del hilo de conversación
+async function toggleHiloConversacion() {
+  if (!form.value.message_id) {
+    alert('No hay message_id disponible para obtener la conversación.');
+    return;
+  }
+
+  // Si ya está visible, solo ocultar
+  if (mostrarHilo.value) {
+    mostrarHilo.value = false;
+    return;
+  }
+
+  try {
+    cargandoHilo.value = true;
+    
+    const response = await axios.post(
+      `${apiUrl}/obtener_hilo_conversacion`,
+      {
+        message_id: form.value.message_id
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      hiloConversacion.value = response.data.data.mensajes || [];
+      mostrarHilo.value = true;
+      console.log('📧 Hilo de conversación cargado:', hiloConversacion.value.length, 'mensajes');
+    }
+  } catch (error) {
+    console.error('❌ Error obteniendo hilo:', error);
+    const errorMsg = error.response?.data?.message || 'Error al obtener la conversación';
+    alert(`Error: ${errorMsg}`);
+  } finally {
+    cargandoHilo.value = false;
+  }
+}
+
+// Funciones de formateo para el hilo de conversación
+function formatDateTime(dateString) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleString('es-ES', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatEmailBody(bodyContent) {
+  if (!bodyContent) return '';
+  
+  // Limpiar y formatear el contenido HTML del email
+  let formatted = bodyContent;
+  
+  // Reemplazar saltos de línea por <br> si no hay HTML
+  if (!formatted.includes('<') && !formatted.includes('>')) {
+    formatted = formatted.replace(/\n/g, '<br>');
+  }
+  
+  // Aumentar el límite de longitud para mostrar más contenido
+  const maxLength = 2000; // Aumentado de 500 a 2000 caracteres
+  if (formatted.length > maxLength) {
+    formatted = formatted.substring(0, maxLength) + '... <em style="color: #64748b; font-style: italic;">(contenido truncado - expandir para ver completo)</em>';
+  }
+  
+  return formatted;
+}
+
+// Nueva función para formatear el cuerpo según si está expandido o no
+function formatEmailBodyForDisplay(bodyContent, messageId) {
+  if (!bodyContent) return '';
+  
+  let formatted = bodyContent;
+  
+  // Remover todas las imágenes del contenido HTML
+  formatted = formatted.replace(/<img[^>]*>/gi, '');
+  formatted = formatted.replace(/<image[^>]*>/gi, '');
+  
+  // Remover referencias a imágenes CID
+  formatted = formatted.replace(/src\s*=\s*["']cid:[^"']*["']/gi, '');
+  
+  // Limpiar etiquetas img vacías o mal formadas
+  formatted = formatted.replace(/<img[^>]*\/?>|<\/img>/gi, '');
+  
+  // Reemplazar saltos de línea por <br> si no hay HTML
+  if (!formatted.includes('<') && !formatted.includes('>')) {
+    formatted = formatted.replace(/\n/g, '<br>');
+  }
+  
+  // Limpiar espacios extra que puedan haber quedado
+  formatted = formatted.replace(/\s+/g, ' ').trim();
+  
+  // Si el mensaje está expandido, mostrar todo el contenido
+  if (expandedMessages.value.includes(messageId)) {
+    return formatted;
+  }
+  
+  // Si no está expandido, truncar como antes
+  const maxLength = 2000;
+  if (formatted.length > maxLength) {
+    formatted = formatted.substring(0, maxLength) + '...';
+  }
+  
+  return formatted;
+}
+
+// Función para alternar la expansión de un mensaje
+function toggleMessageExpansion(messageId) {
+  const index = expandedMessages.value.indexOf(messageId);
+  if (index > -1) {
+    // Si está expandido, colapsarlo
+    expandedMessages.value.splice(index, 1);
+  } else {
+    // Si no está expandido, expandirlo
+    expandedMessages.value.push(messageId);
   }
 }
 
@@ -2766,5 +3019,200 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 .input.saving:focus {
   border-color: #0ea5e9 !important;
   box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2) !important;
+}
+
+/* ===== Estilos para sección de respuesta ===== */
+.response-section {
+  margin-top: 16px;
+}
+
+.conversation-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.response-section textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.response-section textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button.success {
+  background: #17c1a4;
+  color: #fff;
+  border-color: #17c1a4;
+  transition: all 0.2s ease;
+}
+
+.button.success:hover:not(:disabled) {
+  background: #14a085;
+  border-color: #14a085;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(23, 193, 164, 0.3);
+}
+
+.button.success:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ===== Estilos para hilo de conversación ===== */
+.conversation-thread {
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.conversation-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  border-radius: 8px 8px 0 0;
+}
+
+.conversation-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.messages-container {
+  max-height: 600px; /* Aumentado de 400px a 600px */
+  overflow-y: auto;
+}
+
+.message-item {
+  padding: 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  transition: background-color 0.2s ease;
+}
+
+.message-item:last-child {
+  border-bottom: none;
+  border-radius: 0 0 8px 8px;
+}
+
+.message-item:hover {
+  background: #f8fafc;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.sender-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sender-name {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.sender-email {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.message-date {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.unread-badge {
+  background: #ef4444;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+
+
+.message-subject {
+  margin-bottom: 8px;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.message-body {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 300px; /* Aumentado de 150px a 300px */
+  overflow-y: auto;
+  padding: 8px 0;
+  word-wrap: break-word;
+  white-space: pre-wrap; /* Preserva espacios y saltos de línea */
+}
+
+.expand-button {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.expand-button:hover {
+  background-color: #f1f5f9;
+  color: #1d4ed8;
+}
+
+.message-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 12px 0;
+}
+
+/* Scrollbar para mensajes */
+.messages-container::-webkit-scrollbar,
+.message-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track,
+.message-body::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.messages-container::-webkit-scrollbar-thumb,
+.message-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover,
+.message-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 </style>
