@@ -381,7 +381,7 @@
                 <strong>Asunto:</strong> {{ discardConfirmation.item?.subject || 'Sin asunto' }}
               </div>
               <div class="mail-preview-from">
-                <strong>De:</strong> {{ discardConfirmation.item?.from || 'Sin remitente' }}
+                <strong>De:</strong> {{ discardConfirmation.item?.from_email || 'Sin remitente' }}
               </div>
             </div>
           </div>
@@ -415,7 +415,7 @@
                 <strong>Asunto:</strong> {{ convertConfirmation.item?.subject || 'Sin asunto' }}
               </div>
               <div class="mail-preview-from">
-                <strong>De:</strong> {{ convertConfirmation.item?.from || 'Sin remitente' }}
+                <strong>De:</strong> {{ convertConfirmation.item?.from_email || 'Sin remitente' }}
               </div>
               <div class="mail-preview-info">
                 <small class="convert-info">Se creará un nuevo ticket con esta información</small>
@@ -1095,116 +1095,146 @@ const modal = ref({ open:false, mode:'edit' })
 const form = ref({})
 const reply = ref({ tipo:'public', texto:'' })
 
+// Función auxiliar para validar si debe ejecutarse el watcher
+function debeEjecutarWatcher(nuevoValor, anteriorValor) {
+  return modal.value.open && 
+         modal.value.mode === 'edit' && 
+         form.value.id && 
+         nuevoValor !== anteriorValor && 
+         anteriorValor !== undefined &&
+         guardandoCampo.value === ''; // No ejecutar si ya hay una actualización en progreso
+}
+
 // Watchers para actualización automática de campos del ticket
 watch(() => form.value.prioridad, async (nuevaP, anteriorP) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevaP !== anteriorP && anteriorP !== undefined) {
+  if (debeEjecutarWatcher(nuevaP, anteriorP)) {
     await actualizarCampoTicket('prioridad', nuevaP, 'Prioridad');
   }
 });
 
 watch(() => form.value.estado, async (nuevoE, anteriorE) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoE !== anteriorE && anteriorE !== undefined) {
+  if (debeEjecutarWatcher(nuevoE, anteriorE)) {
     await actualizarCampoTicket('estado', nuevoE, 'Estado');
   }
 });
 
 watch(() => form.value.tipoSoporte, async (nuevoTS, anteriorTS) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoTS !== anteriorTS && anteriorTS !== undefined) {
+  if (debeEjecutarWatcher(nuevoTS, anteriorTS)) {
     await actualizarCampoTicket('tipo_soporte', nuevoTS, 'Tipo de Soporte');
   }
 });
 
 watch(() => form.value.tipoTicket, async (nuevoTT, anteriorTT) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoTT !== anteriorTT && anteriorTT !== undefined) {
+  if (debeEjecutarWatcher(nuevoTT, anteriorTT)) {
     await actualizarCampoTicket('tipo_ticket', nuevoTT, 'Tipo de Ticket');
   }
 });
 
 watch(() => form.value.macroproceso, async (nuevoM, anteriorM) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoM !== anteriorM && anteriorM !== undefined) {
+  if (debeEjecutarWatcher(nuevoM, anteriorM)) {
     await actualizarCampoTicket('macroproceso', nuevoM, 'Macroproceso');
   }
 });
 
 watch(() => form.value.asignadoA, async (nuevoA, anteriorA) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoA !== anteriorA && anteriorA !== undefined) {
+  if (debeEjecutarWatcher(nuevoA, anteriorA)) {
     await actualizarCampoTicket('asignado', nuevoA, 'Asignado');
   }
 });
 
 watch(() => form.value.vencimiento, async (nuevoV, anteriorV) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoV !== anteriorV && anteriorV !== undefined) {
+  if (debeEjecutarWatcher(nuevoV, anteriorV)) {
     await actualizarCampoTicket('fecha_vencimiento', nuevoV, 'Fecha de Vencimiento');
   }
 });
 
 watch(() => form.value.slaHoras, async (nuevoSLA, anteriorSLA) => {
-  if (modal.value.open && modal.value.mode === 'edit' && nuevoSLA !== anteriorSLA && anteriorSLA !== undefined) {
+  if (debeEjecutarWatcher(nuevoSLA, anteriorSLA)) {
     await actualizarCampoTicket('sla', nuevoSLA, 'SLA (horas)');
   }
 });
 
 function openTicket(t){
+  // Limpiar formulario primero para evitar conflictos
+  form.value = {};
+  guardandoCampo.value = '';
+  
   modal.value = { open:true, mode:'edit' }
-  form.value = { ...t }
-
-  // Mapear campos con nombres diferentes entre backend y frontend
-  form.value.titulo = t.subject || t.titulo || '';
-  form.value.solicitante = t.from_name || t.solicitante || '';
   
-  // Mantener HTML de la descripción para renderizado
-  const rawDescription = t.body || '';
-  form.value.descripcion = rawDescription;
+  // Usar nextTick para asegurar que el DOM se actualice antes de cargar los datos
+  nextTick(() => {
+    // Mapear campos con nombres diferentes entre backend y frontend
+    form.value = { ...t };
+    form.value.titulo = t.subject || t.titulo || '';
+    form.value.solicitante = t.from_name || t.solicitante || '';
+    
+    // Mantener HTML de la descripción para renderizado
+    const rawDescription = t.body || '';
+    form.value.descripcion = rawDescription;
+    
+    // Asegurar que los valores estén correctamente seteados para los selects
+    if (t.prioridad && typeof t.prioridad === 'object') {
+      form.value.prioridad = t.prioridad.id || t.prioridad;
+    } else if (t.prioridad) {
+      form.value.prioridad = t.prioridad;
+    } else {
+      form.value.prioridad = '';
+    }
+    
+    // Mapear tipo_soporte (backend) a tipoSoporte (frontend)
+    const tipoSoporteValue = t.tipo_soporte || t.tipoSoporte;
+    if (tipoSoporteValue && typeof tipoSoporteValue === 'object') {
+      form.value.tipoSoporte = tipoSoporteValue.id || tipoSoporteValue;
+    } else if (tipoSoporteValue) {
+      form.value.tipoSoporte = tipoSoporteValue;
+    } else {
+      form.value.tipoSoporte = '';
+    }
+    
+    // Mapear tipo_ticket (backend) a tipoTicket (frontend)  
+    const tipoTicketValue = t.tipo_ticket || t.tipoTicket;
+    if (tipoTicketValue && typeof tipoTicketValue === 'object') {
+      form.value.tipoTicket = tipoTicketValue.id || tipoTicketValue;
+    } else if (tipoTicketValue) {
+      form.value.tipoTicket = tipoTicketValue;
+    } else {
+      form.value.tipoTicket = '';
+    }
+    
+    // Mapear asignado (backend) a asignadoA (frontend)
+    const asignadoValue = t.asignado || t.asignadoA;
+    if (asignadoValue && typeof asignadoValue === 'object') {
+      form.value.asignadoA = asignadoValue.id || asignadoValue;
+    } else if (asignadoValue) {
+      form.value.asignadoA = asignadoValue;
+    } else {
+      form.value.asignadoA = '';
+    }
+    
+    // Mapear macroproceso
+    const macroprocesoValue = t.macroproceso;
+    if (macroprocesoValue && typeof macroprocesoValue === 'object') {
+      form.value.macroproceso = macroprocesoValue.id || macroprocesoValue;
+    } else if (macroprocesoValue) {
+      form.value.macroproceso = macroprocesoValue;
+    } else {
+      form.value.macroproceso = '';
+    }
+    
+    // Mapear estado
+    form.value.estado = t.estado || '';
+    
+    // Mapear fecha_vencimiento
+    form.value.vencimiento = t.fecha_vencimiento || t.vencimiento || '';
+    
+    // Mapear sla
+    form.value.slaHoras = t.sla || '';
+    
+    reply.value = { tipo:'public', texto:'' }
+    
+    console.log('🔧 Ticket cargado en modal:', form.value);
+  });
   
-  // Asegurar que los valores estén correctamente seteados para los selects
-  if (t.prioridad && typeof t.prioridad === 'object') {
-    form.value.prioridad = t.prioridad.id || t.prioridad;
-  } else if (t.prioridad) {
-    form.value.prioridad = t.prioridad;
-  }
-  
-  // Mapear tipo_soporte (backend) a tipoSoporte (frontend)
-  const tipoSoporteValue = t.tipo_soporte || t.tipoSoporte;
-  if (tipoSoporteValue && typeof tipoSoporteValue === 'object') {
-    form.value.tipoSoporte = tipoSoporteValue.id || tipoSoporteValue;
-  } else if (tipoSoporteValue) {
-    form.value.tipoSoporte = tipoSoporteValue;
-  }
-  
-  // Mapear tipo_ticket (backend) a tipoTicket (frontend)  
-  const tipoTicketValue = t.tipo_ticket || t.tipoTicket;
-  if (tipoTicketValue && typeof tipoTicketValue === 'object') {
-    form.value.tipoTicket = tipoTicketValue.id || tipoTicketValue;
-  } else if (tipoTicketValue) {
-    form.value.tipoTicket = tipoTicketValue;
-  }
-  
-  // Mapear asignado (backend) a asignadoA (frontend)
-  const asignadoValue = t.asignado || t.asignadoA;
-  if (asignadoValue && typeof asignadoValue === 'object') {
-    form.value.asignadoA = asignadoValue.id || asignadoValue;
-  } else if (asignadoValue) {
-    form.value.asignadoA = asignadoValue;
-  }
-  
-  // Mapear macroproceso
-  const macroprocesoValue = t.macroproceso;
-  if (macroprocesoValue && typeof macroprocesoValue === 'object') {
-    form.value.macroproceso = macroprocesoValue.id || macroprocesoValue;
-  } else if (macroprocesoValue) {
-    form.value.macroproceso = macroprocesoValue;
-  }
-  
-  // Mapear estado
-  form.value.estado = t.estado || '';
-  
-  // Mapear fecha_vencimiento
-  form.value.vencimiento = t.fecha_vencimiento || t.vencimiento || '';
-  
-  // Mapear sla
-  form.value.slaHoras = t.sla || '';
-  
-  reply.value = { tipo:'public', texto:'' }
   lockScroll(true)
   
   // Cargar adjuntos del ticket si viene de un correo
@@ -1230,8 +1260,16 @@ function openNew(){
 }
 function closeModal(){ 
   modal.value.open=false; 
+  
+  // Limpiar completamente el formulario para evitar conflictos en watchers
+  form.value = {};
+  
   // Limpiar adjuntos del ticket al cerrar modal
   ticketAttachments.value = [];
+  
+  // Limpiar indicador de guardado
+  guardandoCampo.value = '';
+  
   lockScroll(false); 
 }
 
@@ -1290,12 +1328,17 @@ async function actualizarCampoTicket(campo, valor, mensaje) {
     if (response.status === 200) {
       console.log(`✅ ${mensaje} actualizado correctamente`);
       
+      // Actualizar visualmente el ticket en la lista local
+      actualizarTicketEnLista(form.value.id, campo, valor);
+      
       // Mostrar indicador de éxito temporal
       setTimeout(() => {
         if (guardandoCampo.value === campo) {
           guardandoCampo.value = '';
         }
       }, 1000);
+      await actualizarContadores(); // Refrescar contadores después de la actualización
+      await cargarTicketsCorreos(vista.value, true); // Refrescar vista actual con filtros
     }
   } catch (error) {
     console.error(`❌ Error actualizando ${campo}:`, error);
@@ -1305,6 +1348,45 @@ async function actualizarCampoTicket(campo, valor, mensaje) {
     alert(`${mensajeError}. Inténtalo de nuevo.`);
     
     guardandoCampo.value = '';
+  }
+}
+
+// Función para actualizar el ticket en la lista local después de un cambio
+function actualizarTicketEnLista(ticketId, campo, valor) {
+  const ticketIndex = ticketsCorreos.value.findIndex(t => t.id == ticketId);
+  
+  if (ticketIndex >= 0) {
+    const ticket = ticketsCorreos.value[ticketIndex];
+    
+    // Mapear campo frontend a backend para la actualización visual
+    const mapeoVista = {
+      'prioridad': 'prioridad',
+      'estado': 'estado',
+      'tipo_soporte': 'tipo_soporte',
+      'tipo_ticket': 'tipo_ticket', 
+      'macroproceso': 'macroproceso',
+      'asignado': 'asignado',
+      'fecha_vencimiento': 'fecha_vencimiento',
+      'sla': 'sla'
+    };
+    
+    const campoVista = mapeoVista[campo] || campo;
+    
+    // Actualizar el valor en la lista
+    ticketsCorreos.value[ticketIndex] = {
+      ...ticket,
+      [campoVista]: valor
+    };
+    
+    // Si es un campo de asignado, también actualizar el nombre visible
+    if (campo === 'asignadoA' && valor) {
+      const tecnico = tecnicos.value.find(t => t.id == valor);
+      if (tecnico) {
+        ticketsCorreos.value[ticketIndex].asignadoNombre = tecnico.nombre;
+      }
+    }
+    
+    console.log(`🔄 Vista actualizada para ticket ${ticketId}, campo ${campo}:`, valor);
   }
 }
 
@@ -2509,22 +2591,22 @@ label{ display:flex; flex-direction:column; gap:6px; font-size:.92rem }
 }
 
 .button.success {
-  background: #22c55e;
+  background: #17c1a4;
   color: #fff;
-  border-color: #22c55e;
+  border-color: #17c1a4;
   transition: all 0.2s ease;
 }
 
 .button.success:hover {
-  background: #16a34a;
-  border-color: #16a34a;
+  background: #14a085;
+  border-color: #14a085;
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 4px 8px rgba(23, 193, 164, 0.3);
 }
 
 .button.success:active {
   transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 2px 4px rgba(23, 193, 164, 0.3);
 }
 
 /* ===== Efectos de hover para imágenes ===== */
