@@ -1505,7 +1505,7 @@ async function enviarRespuesta() {
       
       // Limpiar el textarea de respuesta
       reply.value.texto = '';
-      
+      await toggleHiloConversacion(); // Recargar el hilo para incluir la nueva respuesta
       // Opcionalmente cerrar el modal o actualizar el estado
       // closeModal();
     }
