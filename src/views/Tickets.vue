@@ -90,7 +90,7 @@
                   <div class="inbox-actions">
                     <div class="inbox-buttons">
                       <button class="button sm" @click="openMail(m)">Abrir</button>
-                      <button class="button sm primary" @click="showConvertConfirmation(m)">Convertir</button>
+                      <button class="button sm primary" @click="convertToTicketWithConfirmation(m)">Convertir</button>
                       <button class="button sm ghost" @click="showDiscardConfirmation(m)">Descartar</button>
                     </div>
                   </div>
@@ -130,7 +130,7 @@
             <tbody>
               <tr v-for="t in filtered" :key="t.id" @click="openTicket(t)">
                 <td><span class="tag" :class="mapEstado(t.estadoTicket)">{{ t.estadoTicket }}</span></td>
-                <td><span class="pill">{{ t.ticket_id }}</span></td>
+                <td><span class="pill">{{ t.ticket_id_display || t.ticket_id }}</span></td>
                 <td>{{ t.created_at }}</td>
                 <td>{{ t.fecha_vencimiento ? t.fecha_vencimiento : '—' }}</td>
                 <td>{{ t.tipo_soporte_nombre || '—' }}</td>
@@ -427,7 +427,7 @@
           <div class="left"></div>
           <div class="right">
             <button class="button ghost" @click="showDiscardConfirmation(mail.item)">Descartar</button>
-            <button class="button primary" @click="showConvertConfirmation(mail.item)">Convertir</button>
+            <button class="button primary" @click="convertToTicketWithConfirmation(mail.item)">Convertir</button>
           </div>
         </div>
       </div>
@@ -467,44 +467,6 @@
       </div>
     </div>
 
-    <!-- MODAL: Confirmación de conversión a ticket -->
-    <div v-if="convertConfirmation.open" class="modal confirmation-modal" @keydown.esc="closeConvertConfirmation" tabindex="0">
-      <div class="backdrop" @click="closeConvertConfirmation"></div>
-      <div class="confirmation-sheet" role="dialog" aria-modal="true">
-        <div class="confirmation-icon">
-          <div class="success-circle">
-            <span class="success-symbol">🎫</span>
-          </div>
-        </div>
-        
-        <div class="confirmation-content">
-          <h3 class="confirmation-title">¿Convertir a ticket?</h3>
-          <p class="confirmation-message">
-            ¿Estás seguro de que quieres convertir este correo en un ticket de soporte?
-          </p>
-          <div class="confirmation-details">
-            <div class="mail-preview">
-              <div class="mail-preview-subject">
-                <strong>Asunto:</strong> {{ convertConfirmation.item?.subject || 'Sin asunto' }}
-              </div>
-              <div class="mail-preview-from">
-                <strong>De:</strong> {{ convertConfirmation.item?.from_email || 'Sin remitente' }}
-              </div>
-              <div class="mail-preview-info">
-                <small class="convert-info">Se creará un nuevo ticket con esta información</small>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="confirmation-actions">
-          <button class="button ghost" @click="closeConvertConfirmation">Cancelar</button>
-          <button class="button success" @click="confirmConvert">Sí, convertir</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- MODAL: Visor de imágenes -->
   <div v-if="imageViewer.open" class="modal image-viewer-modal" @keydown.esc="closeImageViewer" tabindex="0">
     <div class="backdrop" @click="closeImageViewer"></div>
@@ -536,6 +498,7 @@
       </div>
       <p class="loading-text">{{ loading_msg }}</p>
   </div>
+</div>
 </template>
 
 <script setup>
@@ -741,8 +704,6 @@ const cargarTicketsCorreos = async (vistaSeleccionada = 'todos', aplicarFiltros 
       if (fTipoTicket.value) parametros.fTipoTicket = fTipoTicket.value;
     }
 
-    console.log('🔍 Parámetros enviados al backend:', parametros);
-
     const response = await axios.post(
       `${apiUrl}/filtrar_tickets`,
       parametros,
@@ -756,8 +717,6 @@ const cargarTicketsCorreos = async (vistaSeleccionada = 'todos', aplicarFiltros 
     if (response.status === 200) {
       const data = response.data.data;
       ticketsCorreos.value = data.tickets || [];
-      
-      console.log(`✅ Tickets cargados: ${ticketsCorreos.value.length}/${data.total || 0}`);
       
       // Solo actualizar contadores si no estamos aplicando filtros específicos
       if (!aplicarFiltros) {
@@ -861,11 +820,8 @@ const cargarTecnicosGestionTic = async () => {
 // Función para obtener attachments de un correo específico
 const obtenerAttachments = async (messageId) => {
   try {
-    console.log('obtenerAttachments llamado con messageId:', messageId, 'token disponible:', !!token.value);
-    
     // Verificar si ya están en caché
     if (attachmentsCache.value.has(messageId)) {
-      console.log('Attachments encontrados en caché para:', messageId);
       return attachmentsCache.value.get(messageId);
     }
     
@@ -884,11 +840,8 @@ const obtenerAttachments = async (messageId) => {
       }
     );
     
-    console.log('Response obtener_attachments:', response.status, response.data);
-    
     if (response.status === 200) {
       const attachments = response.data.data || [];
-      console.log('Attachments obtenidos:', attachments.length);
       // Guardar en caché
       attachmentsCache.value.set(messageId, attachments);
       return attachments;
@@ -922,6 +875,20 @@ function promote(m){
   correos.value = correos.value.filter(x=> x.id!==m.id)
 }
 
+// Función wrapper para convertir con confirmación
+async function convertToTicketWithConfirmation(m) {
+  const confirmed = confirm(`¿Está seguro de que desea convertir este correo a ticket?\n\nDe: ${m.from_name || 'Usuario'}\nAsunto: ${m.subject || 'Sin asunto'}`);
+  
+  if (confirmed) {
+    await convertToTicket(m);
+    
+    // Cerrar modals si están abiertos
+    if (mail.value.open && mail.value.item?.id === m.id) {
+      closeMail();
+    }
+  }
+}
+
 // Función para convertir correo a ticket con consumo al backend
 async function convertToTicket(m) {
   try {
@@ -944,15 +911,78 @@ async function convertToTicket(m) {
     if (response.status === 200) {
       // Crear el ticket localmente usando la función promote existente
       promote(m);
+      
+      // Obtener el ID numérico del ticket desde la respuesta del backend
+      let ticketId = response.data.data?.ticket_id || response.data.data?.id || m.id;
+      
+      // Asegurar que sea string y sin caracteres especiales
+      ticketId = String(ticketId).trim();
+      
+      // Enviar respuesta automática al solicitante usando datos del correo
+      const emailEnviado = await enviarRespuestaAutomatica(m, ticketId);
+      
+      // Mostrar mensaje de éxito
+      const ticketDisplay = `TCK-${String(ticketId).padStart(4,'0')}`;
+      if (emailEnviado) {
+        alert(`✅ Ticket ${ticketDisplay} creado exitosamente. Confirmación automática enviada.`);
+      } else {
+        alert(`✅ Ticket ${ticketDisplay} creado exitosamente. (Confirmación automática falló)`);
+      }
+      
     } else {
-      alert('Error al convertir el correo a ticket. Inténtalo de nuevo.');
+      const errorMsg = response.data?.message || 'Error desconocido';
+      alert(`Error al convertir el correo a ticket: ${errorMsg}`);
     }
   } catch (error) {
     console.error('Error al convertir correo a ticket:', error);
-    alert('Error de conexión al convertir el correo a ticket. Inténtalo de nuevo.');
+    const errorMsg = error.response?.data?.message || error.message || 'Error de conexión';
+    alert(`Error al convertir correo a ticket: ${errorMsg}`);
   } finally {
     loading.value = false;
     loading_msg.value = '';
+  }
+}
+
+// Función para enviar respuesta automática usando método de correo nuevo (más confiable)
+async function enviarRespuestaAutomatica(correoItem, ticketId) {
+  try {
+    // Preparar datos del correo que ya tenemos en frontend
+    const datosCorreo = {
+      ticket_id: ticketId,  // Usar directamente el ID que viene del backend
+      from_name: correoItem.from_name || 'usuario',
+      from_email: correoItem.from_email,
+      subject: correoItem.subject || 'Sin asunto'
+    };
+    
+    // Validación básica antes de enviar
+    if (!datosCorreo.from_email) {
+      console.error('❌ No se encontró email del remitente:', correoItem);
+      alert(`⚠️ Error: No se puede enviar confirmación automática - Email faltante`);
+      return false;
+    }
+    
+    // Usar directamente el método de correo nuevo (más confiable)
+    const response = await axios.post(
+      `${apiUrl}/enviar_correo_nuevo_automatico`,
+      datosCorreo,
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      return true;
+    } else {
+      console.error('❌ Error enviando confirmación automática:', response.data?.message);
+      alert(`⚠️ Ticket TCK-${String(ticketId).padStart(4,'0')} creado, pero hubo un problema enviando la confirmación automática.`);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error enviando confirmación automática:', error);
+    alert(`⚠️ Ticket TCK-${String(ticketId).padStart(4,'0')} creado, pero hubo un problema enviando la confirmación automática.`);
+    return false;
   }
 }
 
@@ -1029,30 +1059,6 @@ async function confirmDiscard() {
   }
 }
 
-// Modal de confirmación de conversión a ticket
-const convertConfirmation = ref({ open: false, item: null })
-
-function showConvertConfirmation(mailItem) {
-  convertConfirmation.value = { open: true, item: mailItem }
-  lockScroll(true)
-}
-
-function closeConvertConfirmation() {
-  convertConfirmation.value = { open: false, item: null }
-  lockScroll(false)
-}
-
-async function confirmConvert() {
-  if (convertConfirmation.value.item) {
-    await convertToTicket(convertConfirmation.value.item)
-    closeConvertConfirmation()
-    
-    // Si el correo estaba abierto en el modal, cerrarlo también
-    if (mail.value.open && mail.value.item?.id === convertConfirmation.value.item.id) {
-      closeMail()
-    }
-  }
-}
 
 // Watcher optimizado para procesar imágenes CID y cargar attachments con una sola llamada API
 watch([() => mail.value.item, () => mail.value.open], async ([newMail, isOpen]) => {
@@ -1311,8 +1317,6 @@ function openTicket(t){
     form.value.slaHoras = t.sla || '';
     
     reply.value = { tipo:'public', texto:'' }
-    
-    console.log('🔧 Ticket cargado en modal:', form.value);
   });
   
   lockScroll(true)
@@ -1394,7 +1398,6 @@ async function actualizarCampoTicket(campo, valor, mensaje) {
   
   try {
     guardandoCampo.value = campo;
-    console.log(`🔄 Actualizando ${campo}:`, valor);
     
     const response = await axios.post(
       `${apiUrl}/actualizar_ticket`,
@@ -1412,7 +1415,6 @@ async function actualizarCampoTicket(campo, valor, mensaje) {
     );
 
     if (response.status === 200) {
-      console.log(`✅ ${mensaje} actualizado correctamente`);
       
       // Actualizar visualmente el ticket en la lista local
       actualizarTicketEnLista(form.value.id, campo, valor);
@@ -1471,8 +1473,6 @@ function actualizarTicketEnLista(ticketId, campo, valor) {
         ticketsCorreos.value[ticketIndex].asignadoNombre = tecnico.nombre;
       }
     }
-    
-    console.log(`🔄 Vista actualizada para ticket ${ticketId}, campo ${campo}:`, valor);
   }
 }
 
@@ -1549,7 +1549,7 @@ async function toggleHiloConversacion() {
     if (response.status === 200) {
       hiloConversacion.value = response.data.data.mensajes || [];
       mostrarHilo.value = true;
-      console.log('📧 Hilo de conversación cargado:', hiloConversacion.value.length, 'mensajes');
+
     }
   } catch (error) {
     console.error('❌ Error obteniendo hilo:', error);
@@ -1649,7 +1649,6 @@ function save(){
   const idx = state.tickets.findIndex(x=> x.id===form.value.id)
   if(idx>=0){ state.tickets[idx] = { ...form.value } }
   else{ state.tickets.unshift({ ...form.value }) }
-  if(reply.value.texto.trim()){ console.log('Respuesta', reply.value.tipo, reply.value.texto) }
   closeModal()
 }
 
@@ -1857,21 +1856,15 @@ async function processCidImages(messageId) {
 
 // Función para procesar attachments del ticket en el modal de edición
 async function processTicketAttachments(ticket) {
-  // Debug: verificar qué campos tiene el ticket
-  console.log('Ticket object:', ticket);
-  console.log('Available keys:', Object.keys(ticket));
-  
   // Buscar el message_id en diferentes posibles campos
   const messageId = ticket?.message_id || ticket?.messageId || ticket?.id || ticket?.correo_id;
   
   if (!messageId || !ticketBodyRef.value) {
-    console.log('No messageId found or ticketBodyRef not available:', { messageId, ticketBodyRef: !!ticketBodyRef.value });
     ticketAttachments.value = [];
     return;
   }
   
   try {
-    console.log('Intentando obtener attachments para messageId:', messageId);
     // Obtener attachments del correo original usando el message_id del ticket
     const attachments = await obtenerAttachments(messageId);
     
@@ -1922,12 +1915,6 @@ async function processTicketAttachments(ticket) {
     ticketAttachments.value = attachments.filter(att => {
       // Excluir attachments que son imágenes CID embebidas (tienen contentId)
       return !att.contentId || att.contentId === null || att.contentId === '';
-    });
-    
-    console.log('Attachments procesados:', {
-      totalAttachments: attachments.length,
-      cidPlaceholders: ticketBodyRef.value.querySelectorAll('.cid-image-ticket').length,
-      ticketAttachments: ticketAttachments.value.length
     });
     
   } catch (error) {
