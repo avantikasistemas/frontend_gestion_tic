@@ -80,38 +80,11 @@
       </div>
 
       <div class="card">
-        <div class="head"><h3>Cumplimiento SLA</h3></div>
-        <canvas ref="cSla" class="gauge"></canvas>
-        <div class="legend center">
-          <span class="chip" :class="sla.percent>=0.8 ? 'chip-ok' : 'chip-warn'">
-            {{ Math.round(sla.percent*100) }}% en tiempo
-          </span>
-          <span class="muted">({{ sla.onTime }}/{{ sla.total }})</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="head"><h3>Tendencia (mensual)</h3></div>
-        <canvas ref="cTrend"></canvas>
-      </div>
-    </section>
-
-    <!-- ====== FILA 3 (4) ====== -->
-    <section class="grid grid-4">
-      <div class="card">
         <div class="head"><h3>Tasa de cierre</h3></div>
         <canvas ref="cClose" class="gauge"></canvas>
         <div class="legend center">
           <span class="chip">{{ Math.round(closeRate.percent*100) }}% cerrados</span>
           <span class="muted">({{ closeRate.cerrados }}/{{ closeRate.total }})</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="head"><h3>Backlog por antigüedad</h3></div>
-        <canvas ref="cAging"></canvas>
-        <div class="legend">
-          <span class="chip" v-for="(v,k) in aging" :key="k">{{ k }}: {{ v }}</span>
         </div>
       </div>
 
@@ -124,10 +97,45 @@
         </div>
       </div>
 
-      <div class="card">
+      <!-- <div class="card">
+        <div class="head"><h3>Backlog por antigüedad</h3></div>
+        <canvas ref="cAging"></canvas>
+        <div class="legend">
+          <span class="chip" v-for="(v,k) in aging" :key="k">{{ k }}: {{ v }}</span>
+        </div>
+      </div> -->
+
+      
+
+      <!-- <div class="card">
+        <div class="head"><h3>Cumplimiento SLA</h3></div>
+        <canvas ref="cSla" class="gauge"></canvas>
+        <div class="legend center">
+          <span class="chip" :class="sla.percent>=0.8 ? 'chip-ok' : 'chip-warn'">
+            {{ Math.round(sla.percent*100) }}% en tiempo
+          </span>
+          <span class="muted">({{ sla.onTime }}/{{ sla.total }})</span>
+        </div>
+      </div> -->
+
+      <!-- <div class="card">
+        <div class="head"><h3>Tendencia (mensual)</h3></div>
+        <canvas ref="cTrend"></canvas>
+      </div> -->
+    </section>
+
+    <!-- ====== FILA 3 (4) ====== -->
+    <section class="grid grid-4">
+      
+
+      
+
+      
+
+      <!-- <div class="card">
         <div class="head"><h3>SLA por Macroproceso</h3></div>
         <canvas ref="cSlaMacro"></canvas>
-      </div>
+      </div> -->
     </section>
   </div>
 </template>
@@ -154,7 +162,11 @@ const metricas = ref({
     abiertos: 0,
     en_proceso: 0,
     completados: 0
-  }
+  },
+  tipos_soporte: [],
+  macroprocesos: [],
+  prioridades: [],
+  asignados: []
 })
 
 // ===== Filtros =====
@@ -225,6 +237,10 @@ const last = computed(()=>{
 // Usar métricas reales de la API en lugar de calcular localmente
 const totals = computed(()=> metricas.value.totals)
 const estadosTickets = computed(()=> metricas.value.estados)
+const tiposSoporte = computed(()=> metricas.value.tipos_soporte || [])
+const macroprocesosList = computed(()=> metricas.value.macroprocesos || [])
+const prioridadesList = computed(()=> metricas.value.prioridades || [])
+const asignadosList = computed(()=> metricas.value.asignados || [])
 
 // Estados usando métricas reales de la API
 const estadoTicketCount = computed(() => ({
@@ -233,15 +249,56 @@ const estadoTicketCount = computed(() => ({
   'Completados': estadosTickets.value.completados || 0
 }))
 
+// Tipos de soporte usando métricas reales de la API
+const tipoSoporteCount = computed(() => {
+  const result = {}
+  tiposSoporte.value.forEach(tipo => {
+    result[tipo.nombre] = tipo.cantidad
+  })
+  return result
+})
+
+// Macroprocesos usando métricas reales de la API
+const macroprocesoCount = computed(() => {
+  const result = {}
+  macroprocesosList.value.forEach(macro => {
+    result[macro.nombre] = macro.cantidad
+  })
+  return result
+})
+
+// Prioridades usando métricas reales de la API
+const prioridadCount = computed(() => {
+  const result = {}
+  prioridadesList.value.forEach(prio => {
+    result[prio.nombre] = prio.cantidad
+  })
+  return result
+})
+
+// Asignados usando métricas reales de la API
+const asignadoCount = computed(() => {
+  const result = {}
+  asignadosList.value.forEach(asig => {
+    result[asig.nombre] = asig.cantidad
+  })
+  return result
+})
+
+// Tipo de ticket usando métricas reales de la API
+const tipoTicketCount = computed(() => ({
+  'Gestión': totals.value.gestion || 0,
+  'Estratégico': totals.value.estrategicos || 0
+}))
+
 const groupBy = (field)=> computed(()=>{
   const m = {}; tickets.value.forEach(t=>{ const k=t[field]||'—'; m[k]=(m[k]||0)+1 })
   return m
 })
-const tipoCount = groupBy('tipoSoporte')
-const macroCount = groupBy('macroproceso')
-const prioCount = groupBy('prioridad')
-const asignCount = groupBy('asignadoA')
-const tipoTicketCount = groupBy('tipoTicket')
+const tipoCount = tipoSoporteCount
+const macroCount = macroprocesoCount
+const prioCount = prioridadCount
+const asignCount = asignadoCount
 
 // SLA global
 const sla = computed(()=>{
@@ -252,10 +309,10 @@ const sla = computed(()=>{
   return { onTime, total, percent }
 })
 
-// Tasa de cierre
+// Tasa de cierre usando métricas del backend
 const closeRate = computed(()=>{
-  const total = tickets.value.length || 0
-  const cerrados = tickets.value.filter(t=> t.estadoTicket==='Cerrado').length
+  const total = totals.value.total || 0
+  const cerrados = estadosTickets.value.completados || 0
   return { total, cerrados, percent: total ? cerrados/total : 0 }
 })
 
