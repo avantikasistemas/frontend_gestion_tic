@@ -31,22 +31,24 @@
       <div class="card kpis">
         <h3>Resumen</h3>
         <div class="kpi-wrap">
-          <div class="kpi"><div class="kpi-n">{{ totals.total }}</div><div class="kpi-l">Tickets</div></div>
-          <div class="kpi"><div class="kpi-n">{{ totals.gestion }}</div><div class="kpi-l">Gestión</div></div>
-          <div class="kpi"><div class="kpi-n">{{ totals.estrategico }}</div><div class="kpi-l">Estratégicos</div></div>
-          <div class="kpi"><div class="kpi-n">{{ totals.alta }}</div><div class="kpi-l">Prioridad alta</div></div>
+          <div class="kpi"><div class="kpi-n">{{ cargandoMetricas ? '...' : totals.total }}</div><div class="kpi-l">Tickets</div></div>
+          <div class="kpi"><div class="kpi-n">{{ cargandoMetricas ? '...' : totals.gestion }}</div><div class="kpi-l">Gestión</div></div>
+          <div class="kpi"><div class="kpi-n">{{ cargandoMetricas ? '...' : totals.estrategicos }}</div><div class="kpi-l">Estratégicos</div></div>
+          <div class="kpi"><div class="kpi-n">{{ cargandoMetricas ? '...' : totals.prioridad_alta }}</div><div class="kpi-l">Prioridad alta</div></div>
         </div>
         <div class="chips">
-          <span class="chip" v-for="(v,k) in estadoTicketCount" :key="k">{{ k }}: {{ v }}</span>
+          <span class="chip">Abiertos: {{ cargandoMetricas ? '...' : estadosTickets.abiertos }}</span>
+          <span class="chip">En proceso: {{ cargandoMetricas ? '...' : estadosTickets.en_proceso }}</span>
+          <span class="chip">Completados: {{ cargandoMetricas ? '...' : estadosTickets.completados }}</span>
         </div>
-        <div class="last" v-if="last">
+        <!-- <div class="last" v-if="last">
           <div class="title-sm muted">Última actividad</div>
           <div class="last-row">
             <span class="pill">{{ last.id }}</span>
             <span class="tag blue">{{ last.estadoTicket }}</span>
             <span class="muted">{{ fmt(last.actualizadoEn) }}</span>
           </div>
-        </div>
+        </div> -->
       </div>
 
       <div class="card">
@@ -133,9 +135,27 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useTickets } from '../store/tickets'
+import axios from 'axios'
+import apiUrl from "../../config.js"
 
 const { state } = useTickets()
 const tiposTicket = state.tiposTicket ?? ['Gestión','Estratégico']
+
+// Estado de carga y métricas locales
+const cargandoMetricas = ref(false)
+const metricas = ref({
+  totals: {
+    total: 0,
+    gestion: 0,
+    estrategicos: 0,
+    prioridad_alta: 0
+  },
+  estados: {
+    abiertos: 0,
+    en_proceso: 0,
+    completados: 0
+  }
+})
 
 // ===== Filtros =====
 const from = ref(''), to = ref(''), tipoSel = ref('')
@@ -149,6 +169,43 @@ function quick(kind){
   to.value   = end.toISOString().slice(0,10)
   showFilters.value = true
 }
+
+// Función para cargar métricas cuando cambien los filtros
+const cargarMetricas = async () => {
+  if (cargandoMetricas.value) return
+  
+  cargandoMetricas.value = true
+  try {
+    const response = await axios.post(
+      `${apiUrl}/dashboard/obtener_metricas_dashboard`,
+      {
+        fecha_inicio: from.value || null,
+        fecha_fin: to.value || null
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        }
+      }
+    )
+
+    if (response.status === 200) {
+      // Actualizar las métricas locales con los datos de la API
+      metricas.value = response.data.data
+      console.log('Métricas cargadas:', response.data.data)
+    } else {
+      console.error('Error en respuesta:', response.data.message)
+      // Mantener métricas vacías en caso de error
+    }
+
+  } catch (error) {
+    console.error('Error cargando métricas del dashboard:', error)
+    // Mantener métricas vacías en caso de error
+  } finally {
+    cargandoMetricas.value = false
+  }
+}
+
 const inRange = (d,f,t)=>{
   const x=new Date(d).getTime()
   return (!f || x>=new Date(f).getTime()) && (!t || x<=new Date(t).getTime())
@@ -164,20 +221,22 @@ const last = computed(()=>{
   if(!tickets.value.length) return null
   return [...tickets.value].sort((a,b)=> new Date(b.actualizadoEn)-new Date(a.actualizadoEn))[0]
 })
-const totals = computed(()=>{
-  const all = tickets.value
-  return {
-    total: all.length,
-    gestion: all.filter(t=>t.tipoTicket==='Gestión').length,
-    estrategico: all.filter(t=>t.tipoTicket==='Estratégico').length,
-    alta: all.filter(t=>t.prioridad==='Alta').length
-  }
-})
+
+// Usar métricas reales de la API en lugar de calcular localmente
+const totals = computed(()=> metricas.value.totals)
+const estadosTickets = computed(()=> metricas.value.estados)
+
+// Estados usando métricas reales de la API
+const estadoTicketCount = computed(() => ({
+  'Abiertos': estadosTickets.value.abiertos || 0,
+  'En Proceso': estadosTickets.value.en_proceso || 0,
+  'Completados': estadosTickets.value.completados || 0
+}))
+
 const groupBy = (field)=> computed(()=>{
   const m = {}; tickets.value.forEach(t=>{ const k=t[field]||'—'; m[k]=(m[k]||0)+1 })
   return m
 })
-const estadoTicketCount = groupBy('estadoTicket')
 const tipoCount = groupBy('tipoSoporte')
 const macroCount = groupBy('macroproceso')
 const prioCount = groupBy('prioridad')
@@ -352,8 +411,26 @@ const ticketsSig = ()=> tickets.value.map(t=>[
   t.tipoSoporte,t.macroproceso,t.prioridad,t.asignadoA,t.tipoTicket
 ].join('|'))
 
+// Watchers
 watch([ticketsSig, from, to, tipoSel], redraw, {deep:true})
-onMounted(()=>{ redraw(); let r=null; window.addEventListener('resize',()=>{ clearTimeout(r); r=setTimeout(redraw,120) }) })
+
+// Watcher para recargar métricas cuando cambien los filtros de fecha
+watch([from, to], async () => {
+  await cargarMetricas()
+}, { deep: true })
+
+onMounted(async () => {
+  // Cargar métricas iniciales
+  await cargarMetricas()
+  
+  // Configurar redibujado de gráficos
+  redraw()
+  let r = null
+  window.addEventListener('resize', () => { 
+    clearTimeout(r)
+    r = setTimeout(redraw, 120) 
+  })
+})
 </script>
 
 <style>
