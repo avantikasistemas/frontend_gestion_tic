@@ -1,0 +1,26 @@
+# .dockerignore actualizado para Vue.js
+# Solo ignorar lo estrictamente necesario
+
+node_modules/
+dist/
+.git/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+coverage/
+.vscode/
+.idea/
+
+# Archivos de entorno locales (NO el .env.production)
+.env.local
+.env.development
+.env.development.local
+
+# NO ignorar estos archivos (los necesitamos):
+# .env.production
+# vite.config.js
+# vite.config.ts
+# package.json
+# package-lock.json
